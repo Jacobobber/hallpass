@@ -53,7 +53,7 @@ async def token_provider() -> str:
 server = build_mcp_server(app, token_provider)  # hand to any MCP transport
 ```
 
-Every list and call the server answers is gated by the core against that token. An unauthenticated caller gets an empty catalog and a refused call; an ungranted tool is indistinguishable from one that does not exist. See `tests/test_mcp_adapter.py`.
+Every list and call the server answers is gated by the core against that token. An unauthenticated caller gets an empty catalog and a refused call; an ungranted tool is indistinguishable from one that does not exist. A `ToolSpec` may carry an `input_schema` (JSON Schema), which the adapter advertises so clients validate arguments; tools that omit it advertise an open object. See `tests/test_mcp_adapter.py`.
 
 ## Install
 
