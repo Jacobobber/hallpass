@@ -49,6 +49,10 @@ class ToolSpec:
     required_scopes: frozenset[str]
     handler: Callable[..., Any] = field(repr=False)
     connector: str = ""
+    # JSON Schema for the tool's arguments. When set, the MCP adapter
+    # advertises it so clients validate calls; when None it advertises an
+    # open object (any arguments accepted).
+    input_schema: dict[str, Any] | None = None
 
 
 class ToolGate:

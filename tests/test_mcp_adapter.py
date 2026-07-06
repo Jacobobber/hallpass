@@ -13,6 +13,13 @@ from hallpass.mcp_adapter import build_mcp_server
 from conftest import AUDIENCE, ISSUER, jwk_for, mint
 
 
+NOTE_SCHEMA = {
+    "type": "object",
+    "properties": {"id": {"type": "string"}},
+    "required": ["id"],
+}
+
+
 class NotesConnector:
     service = "notes"
 
@@ -23,6 +30,7 @@ class NotesConnector:
                 description="Read the caller's note",
                 required_scopes=frozenset({"notes:read"}),
                 handler=lambda ctx, **kw: f"note for {ctx.principal.subject}",
+                input_schema=NOTE_SCHEMA,
             )
         ]
 
@@ -79,6 +87,16 @@ async def test_catalog_is_per_token(server_with_token, keypair):
 
 
 @pytest.mark.anyio
+async def test_declared_input_schema_is_advertised(server_with_token, keypair):
+    """A tool that declares an argument schema advertises it over MCP, so
+    clients get validation instead of the open-object placeholder."""
+    server, holder = server_with_token
+    holder["token"] = mint(keypair, scope="notes:read")
+    tool = (await _list(server))[0]
+    assert tool.inputSchema == NOTE_SCHEMA
+
+
+@pytest.mark.anyio
 async def test_unauthenticated_list_is_empty_not_error(server_with_token):
     server, holder = server_with_token
     holder["token"] = "garbage"
@@ -96,8 +114,19 @@ async def test_ungranted_scope_hides_tool(server_with_token, keypair):
 async def test_call_succeeds_with_scope(server_with_token, keypair):
     server, holder = server_with_token
     holder["token"] = mint(keypair, sub="alice", scope="notes:read")
-    result = await _call(server, "read_note", {})
+    result = await _call(server, "read_note", {"id": "n1"})
     assert result.root.content[0].text == "note for alice"
+
+
+@pytest.mark.anyio
+async def test_declared_schema_is_enforced_on_calls(server_with_token, keypair):
+    """Advertising the schema is not cosmetic: a call missing a required
+    argument is rejected by validation, not passed to the handler."""
+    server, holder = server_with_token
+    holder["token"] = mint(keypair, sub="alice", scope="notes:read")
+    result = await _call(server, "read_note", {})  # missing required 'id'
+    assert result.root.isError
+    assert "id" in result.root.content[0].text
 
 
 @pytest.mark.anyio
