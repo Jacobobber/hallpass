@@ -127,6 +127,12 @@ class TokenVerifier:
             # never reach logs through this error.
             raise VerificationError(f"token rejected: {type(exc).__name__}") from None
 
+        # `require` proves the claim is present, not that it is meaningful.
+        # Everything downstream partitions on the subject, so a blank one
+        # would collapse identities; refuse it.
+        if not claims["sub"]:
+            raise VerificationError("token subject is empty")
+
         return Principal(
             subject=claims["sub"],
             scopes=frozenset(_extract_scopes(claims)),
