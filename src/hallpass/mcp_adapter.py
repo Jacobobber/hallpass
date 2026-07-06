@@ -23,7 +23,7 @@ from mcp.server.lowlevel import Server
 from mcp.types import TextContent, Tool
 
 from .core import Hallpass
-from .gating import ToolDenied, UnknownTool
+from .gating import UnknownTool
 from .identity import VerificationError
 
 __all__ = ["build_mcp_server", "TokenProvider"]
@@ -76,15 +76,12 @@ def build_mcp_server(
             result = app.call_tool(token, name, arguments)
         except VerificationError:
             raise ValueError("authentication required") from None
-        except ToolDenied as denied:
-            # The gate's message names only the missing scopes, never what
-            # the caller already holds; safe to surface.
+        except UnknownTool as denied:
+            # ToolDenied subclasses UnknownTool and carries the same opaque
+            # message, so ungranted and nonexistent surface identically here:
+            # a tool the caller cannot use is indistinguishable from one that
+            # does not exist. The missing scopes never leave the process.
             raise ValueError(str(denied)) from None
-        except UnknownTool:
-            # Unknown and ungranted look identical to the caller by design:
-            # a tool you cannot use should not be distinguishable from one
-            # that does not exist.
-            raise ValueError(f"no tool named {name!r}") from None
         return [TextContent(type="text", text=_render(result))]
 
     return server

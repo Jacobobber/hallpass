@@ -105,12 +105,14 @@ async def test_call_time_gate_refuses_even_if_listing_skipped(
     server_with_token, keypair
 ):
     """A client that never lists and calls a scoped tool directly is
-    refused by the adapter, because the core refuses it."""
+    refused by the adapter, because the core refuses it. The refusal must
+    NOT name the required scope: that would leak which scope guards a tool
+    the caller is not allowed to know exists."""
     server, holder = server_with_token
     holder["token"] = mint(keypair, sub="bob", scope="")
     result = await _call(server, "read_note", {})
     assert result.root.isError
-    assert "notes:read" in result.root.content[0].text
+    assert "notes:read" not in result.root.content[0].text
 
 
 @pytest.mark.anyio
@@ -124,9 +126,14 @@ async def test_unauthenticated_call_refused(server_with_token):
 
 @pytest.mark.anyio
 async def test_unknown_and_ungranted_are_indistinguishable(server_with_token, keypair):
-    """Both must read as 'no such tool for you', never disclosing that a
-    tool exists but is out of scope."""
+    """The response to a probed name must not disclose whether the tool
+    exists: an existing-but-ungranted tool returns exactly the unknown-tool
+    template for its own name, with no scope named."""
     server, holder = server_with_token
     holder["token"] = mint(keypair, scope="")
-    unknown = await _call(server, "does_not_exist", {})
-    assert unknown.root.isError
+    ungranted = await _call(server, "read_note", {})  # exists, no scope
+    unknown = await _call(server, "does_not_exist", {})  # truly absent
+    assert ungranted.root.isError and unknown.root.isError
+    assert ungranted.root.content[0].text == "no tool named 'read_note'"
+    assert unknown.root.content[0].text == "no tool named 'does_not_exist'"
+    assert "notes:read" not in ungranted.root.content[0].text

@@ -20,15 +20,26 @@ from .identity import Principal
 __all__ = ["ToolSpec", "ToolGate", "ToolDenied", "UnknownTool"]
 
 
-class ToolDenied(Exception):
-    """The principal lacks a required scope for this tool. Message names
-    the tool and the missing scopes, never claim values."""
-
-
 class UnknownTool(Exception):
-    """No such tool is registered. Deliberately the same failure shape a
-    denied caller sees from the catalog: unknown and ungranted are both
-    'not there for you'."""
+    """No such tool is registered. Its message is the canonical opaque
+    'not there for you' response, shared with ToolDenied so a caller
+    cannot tell the two apart."""
+
+
+class ToolDenied(UnknownTool):
+    """The principal lacks a required scope for this tool.
+
+    A subclass of UnknownTool with a byte-identical message on purpose:
+    over the wire, an ungranted tool must be indistinguishable from one
+    that does not exist, or a caller can enumerate the private tool
+    namespace and read off the scope guarding each hidden tool. Trusted
+    in-process code that needs the detail reads ``missing_scopes``; it is
+    never placed in the message and never surfaced to a caller.
+    """
+
+    def __init__(self, message: str, *, missing_scopes: frozenset[str]) -> None:
+        super().__init__(message)
+        self.missing_scopes = missing_scopes
 
 
 @dataclass(frozen=True)
@@ -60,14 +71,18 @@ class ToolGate:
 
     def authorize(self, principal: Principal, tool_name: str) -> ToolSpec:
         """The call-time gate. Raises unless the tool exists AND the
-        principal holds every required scope."""
+        principal holds every required scope.
+
+        Unknown and ungranted raise the same opaque message; ToolDenied
+        (a subclass of UnknownTool) additionally carries ``missing_scopes``
+        for trusted in-process callers, so type-based handling still works
+        while the observable failure stays indistinguishable.
+        """
+        opaque = f"no tool named {tool_name!r}"
         spec = self._tools.get(tool_name)
         if spec is None:
-            raise UnknownTool(f"no tool named {tool_name!r}")
+            raise UnknownTool(opaque)
         missing = spec.required_scopes - principal.scopes
         if missing:
-            raise ToolDenied(
-                f"tool {tool_name!r} requires scopes {sorted(missing)}"
-                " that were not granted"
-            )
+            raise ToolDenied(opaque, missing_scopes=frozenset(missing))
         return spec
