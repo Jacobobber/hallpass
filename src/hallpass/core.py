@@ -36,6 +36,7 @@ class Hallpass:
                 required_scopes=spec.required_scopes,
                 handler=spec.handler,
                 connector=connector.service,
+                input_schema=spec.input_schema,
             )
             self._gate.register(named)
             self._services[spec.name] = connector.service

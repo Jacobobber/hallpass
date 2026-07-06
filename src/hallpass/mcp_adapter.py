@@ -64,7 +64,7 @@ def build_mcp_server(
             Tool(
                 name=spec.name,
                 description=spec.description,
-                inputSchema={"type": "object"},
+                inputSchema=spec.input_schema or {"type": "object"},
             )
             for spec in specs
         ]
