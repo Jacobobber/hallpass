@@ -75,13 +75,34 @@ def test_duplicate_registration_refused(gate):
         gate.register(spec("public_ping"))
 
 
-def test_denial_names_missing_scopes_not_granted_ones(gate):
-    """The error helps the caller fix their grant without disclosing what
-    else the caller already holds."""
+def test_ungranted_and_unknown_are_indistinguishable(gate):
+    """The enumeration defense: a caller must not be able to tell a tool
+    they lack scope for from one that does not exist, or they can map the
+    private tool namespace and its guarding scopes. Same message, and the
+    denial subclasses the unknown error so an except-UnknownTool catches
+    both."""
+    # The response to a probed name must be a pure function of that name:
+    # calling an existing-but-ungranted tool yields exactly what an unknown
+    # tool of the same name would ("no tool named 'X'"), so the two states
+    # are indistinguishable and neither the tool's existence nor its
+    # guarding scope leaks.
     try:
-        gate.authorize(
-            principal("notes:read", "some:private:scope"), "delete_everything"
-        )
+        gate.authorize(principal(), "delete_everything")  # exists, ungranted
+    except UnknownTool as denied:
+        ungranted_msg = str(denied)
+    assert ungranted_msg == "no tool named 'delete_everything'"
+    assert "admin:destroy" not in ungranted_msg
+    assert "scope" not in ungranted_msg and "grant" not in ungranted_msg
+
+
+def test_missing_scopes_available_to_trusted_code_not_in_message(gate):
+    """Trusted in-process code can still branch on the denial and read the
+    missing scopes off the exception, without that detail reaching the
+    opaque message."""
+    from hallpass import ToolDenied
+
+    try:
+        gate.authorize(principal("notes:read"), "delete_everything")
     except ToolDenied as err:
-        assert "admin:destroy" in str(err)
-        assert "some:private:scope" not in str(err)
+        assert err.missing_scopes == {"admin:destroy"}
+        assert "admin:destroy" not in str(err)

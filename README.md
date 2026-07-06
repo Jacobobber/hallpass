@@ -31,13 +31,14 @@ verifier = TokenVerifier(
 )
 vault = CredentialVault(Fernet.generate_key())  # bring your own key management
 app = Hallpass(verifier=verifier, vault=vault)
-app.add_connector(YourConnector())
+app.add_connector(YourConnector())              # your Connector (see below)
 
+bearer_token = ...                              # the validated bearer from your transport
 tools = app.list_tools(bearer_token)            # this user's catalog
 result = app.call_tool(bearer_token, "read_note", {})
 ```
 
-A connector is a class with a `service` name and a `tools()` method returning `ToolSpec`s; handlers get a `UserContext` with the caller's identity and that user's credential for the connector's service. See `tests/test_end_to_end.py` for a complete invented connector.
+A connector is a class with a `service` name and a `tools()` method returning `ToolSpec`s; handlers get a `UserContext` with the caller's identity and that user's credential for the connector's service. For a complete, runnable `YourConnector` plus a minted token, copy the `NotesConnector` in [`tests/test_end_to_end.py`](tests/test_end_to_end.py).
 
 ## Serving it over MCP
 

@@ -140,3 +140,10 @@ def test_scp_list_shape_parses(verifier, keypair):
 def test_no_scopes_means_no_scopes(verifier, keypair):
     principal = verifier.verify(mint(keypair, scope=None))
     assert principal.scopes == frozenset()
+
+
+def test_empty_subject_rejected(verifier, keypair):
+    """A present-but-blank sub passes JWT's require check but would
+    collapse every user onto one partition key downstream."""
+    with pytest.raises(VerificationError):
+        verifier.verify(mint(keypair, sub=""))
