@@ -28,6 +28,7 @@ from typing import Any, Protocol
 
 from .connectors import UserContext
 from .gating import ToolSpec
+from .guard import guard_response
 
 __all__ = [
     "Endpoint",
@@ -275,6 +276,7 @@ def _make_handler(
     http: HttpClient,
     base_url: str,
     refresher: Callable[[], TokenRefresher | None],
+    max_response_bytes: int | None,
 ) -> Callable[..., Any]:
     def handler(ctx: UserContext, **args: Any) -> Any:
         credential = ctx.credential()
@@ -292,9 +294,14 @@ def _make_handler(
             auth_headers, auth_params = _apply_auth(service, credential)
             headers = {**service.headers, **auth_headers}
             params = {**query, **auth_params}
-            return http.request(
+            result = http.request(
                 endpoint.method, url, headers=headers, params=params, json=body
             )
+            # Bound what reaches the caller's context; overflow is made visible,
+            # never silently dropped (see guard_response).
+            if max_response_bytes is not None:
+                return guard_response(result, max_bytes=max_response_bytes)
+            return result
 
         try:
             return call(credential)
@@ -326,6 +333,7 @@ class RestConnector:
         http: HttpClient | None = None,
         available: Callable[[], bool] | None = None,
         base_url: str | None = None,
+        max_response_bytes: int | None = None,
     ) -> None:
         if spec.requires_base_url and not base_url:
             raise ValueError(
@@ -340,6 +348,8 @@ class RestConnector:
         self._available = available
         self._base_url = base_url or spec.base_url
         self._on_auth_error: TokenRefresher | None = None
+        # Opt-in cap on the size of a single response; None means unbounded.
+        self._max_response_bytes = max_response_bytes
 
     def set_auto_refresh(self, refresher: TokenRefresher | None) -> None:
         """Wire a token refresher so a 401/403 renews the user's token and the
@@ -360,6 +370,7 @@ class RestConnector:
                     self._http,
                     self._base_url,
                     lambda: self._on_auth_error,
+                    self._max_response_bytes,
                 ),
                 connector=self._spec.service,
                 input_schema=endpoint.input_schema(),

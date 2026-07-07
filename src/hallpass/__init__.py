@@ -15,6 +15,7 @@ from .consent import Consent, ConsentLedger, InMemoryConsentLedger
 from .core import Hallpass
 from .diagnostics import Finding, doctor, format_report
 from .gating import ToolDenied, ToolGate, ToolSpec, UnknownTool
+from .guard import TRUNCATED_KEY, guard_response
 from .identity import (
     HttpJwks,
     JwksSource,
@@ -50,7 +51,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 __all__ = [
     "A2ABus",
@@ -97,6 +98,7 @@ __all__ = [
     "ToolKit",
     "ToolRanker",
     "ToolSpec",
+    "TRUNCATED_KEY",
     "UnknownTool",
     "UserContext",
     "VaultError",
@@ -107,6 +109,7 @@ __all__ = [
     "doctor",
     "format_report",
     "frame_untrusted",
+    "guard_response",
     "sanitize",
     "tokenize",
 ]
