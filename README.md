@@ -38,7 +38,7 @@ tools = app.list_tools(bearer_token)            # this user's catalog
 result = app.call_tool(bearer_token, "read_note", {})
 ```
 
-A connector is a class with a `service` name and a `tools()` method returning `ToolSpec`s; handlers get a `UserContext` with the caller's identity and that user's credential for the connector's service. For a complete, runnable `YourConnector` plus a minted token, copy the `NotesConnector` in [`tests/test_end_to_end.py`](tests/test_end_to_end.py).
+A connector is a class with a `service` name and a `tools()` method returning `ToolSpec`s; handlers get a `UserContext` with the caller's identity and that user's credential for the connector's service. For a complete, self-contained program you can run right now (`python examples/minimal.py`, core install only) that mints its own token and shows per-user gating end to end, see [`examples/minimal.py`](examples/minimal.py); [`tests/test_end_to_end.py`](tests/test_end_to_end.py) is the same idea as a test.
 
 ## Serving it over MCP
 
