@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.11).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh, transient-error retry with backoff, and a `doctor()` config self-check are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.12).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, and a `doctor()` config self-check are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -96,6 +96,8 @@ connect.finish(state, code)                # token stored; catalog connector now
 State is single-use and expires, PKCE is used by default, and no token, code, or secret is ever written to a log or an error.
 
 One more line makes it self-healing: `connect.attach_refresh(gh)` wires the flow's refresh into the connector, so when a stored token expires and the service answers 401/403, hallpass renews it and retries the call once. The user never sees the expiry. (Or refresh proactively with `connect.valid_token("alice", "github")` before a call.)
+
+Pass a `consent=` ledger and the flow records what each user connected: `connect.consents("alice")` lists their active grants (service, scopes, time), and `connect.disconnect("alice", "github")` revokes one, clearing both the access token and the refresh bundle from the vault. Giving someone your credentials should come with a way to take them back.
 
 ## Check your setup
 
