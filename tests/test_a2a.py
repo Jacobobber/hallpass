@@ -1,5 +1,5 @@
 """A2A channels apply hallpass's identity and scope model to agent-to-agent
-messaging, with doorbell-style durable delivery. Each test names the thing
+messaging, with durable at-least-once delivery. Each test names the thing
 that must hold: authorization on post and read, opaque denial (channel
 existence does not leak), durable at-least-once delivery, per-principal
 cursors, forward-only acks, and audited decisions."""

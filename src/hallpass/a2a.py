@@ -17,11 +17,9 @@ Three ideas are reused rather than reinvented:
   cannot enumerate channels it may not touch.
 - Every decision is audited through the same ``AuditSink``, denials
   included.
-- Delivery follows the discipline of the companion ``doorbell`` project:
-  an append-only per-channel log, a forward-only ack cursor per
-  (subject, channel), and catch-up on reconnect, so fetch-without-ack means
-  redelivery, never loss. The store is self-contained here; doorbell is the
-  standalone treatment of the delivery problem itself.
+- Delivery is durable and self-contained: an append-only per-channel log,
+  a forward-only ack cursor per (subject, channel), and catch-up on
+  reconnect, so a read without an ack means redelivery, never loss.
 """
 
 from __future__ import annotations
