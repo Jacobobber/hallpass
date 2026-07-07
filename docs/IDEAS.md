@@ -30,7 +30,7 @@ cover, each a small framework addition:
 - **Form-encoded bodies** (Stripe, some legacy APIs): add a body-encoding option to `RestService`.
 - **GraphQL** (Linear, monday, GitHub v4): supported today as a single POST endpoint with a `query` body; a small GraphQL helper (named operations, variables) would make it first-class.
 - **Multi-credential services** (Twilio account SID + token, Datadog API + app key, Twitch token + client id): the vault stores one credential per (user, service); support a small credential bundle per service.
-- **Non-standard token placement** (PagerDuty `Authorization: Token token=...`): a templated auth style, e.g. `("template", "Token token={cred}")`.
+- ~~**Non-standard token placement** (PagerDuty `Authorization: Token token=...`): a templated auth style, e.g. `("template", "Token token={cred}")`.~~ **Done** — the `("template", "Token token={cred}")` auth style renders the credential into any Authorization scheme; PagerDuty, Square, Bitbucket, Stripe (read), and Freshdesk were added on the back of it (catalog now 46 services / 106 tools).
 
 ## Reliability and correctness
 

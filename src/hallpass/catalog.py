@@ -1033,6 +1033,187 @@ SERVICES: dict[str, RestService] = {
             ),
         ),
     ),
+    "pagerduty": RestService(
+        service="pagerduty",
+        base_url="https://api.pagerduty.com",
+        # Non-standard scheme -- the templated auth style exists for this.
+        auth=("template", "Token token={cred}"),
+        headers={"Accept": "application/vnd.pagerduty+json;version=2"},
+        endpoints=(
+            _ep(
+                "pagerduty_list_incidents",
+                "GET",
+                "/incidents",
+                "List incidents.",
+                scopes=["pagerduty:read"],
+                query=("statuses[]", "since", "until", "limit"),
+            ),
+            _ep(
+                "pagerduty_get_incident",
+                "GET",
+                "/incidents/{id}",
+                "Get an incident by id.",
+                scopes=["pagerduty:read"],
+            ),
+            _ep(
+                "pagerduty_list_services",
+                "GET",
+                "/services",
+                "List services.",
+                scopes=["pagerduty:read"],
+                query=("limit",),
+            ),
+            _ep(
+                "pagerduty_list_oncalls",
+                "GET",
+                "/oncalls",
+                "List who is currently on call.",
+                scopes=["pagerduty:read"],
+                query=("since", "until"),
+            ),
+        ),
+    ),
+    "stripe": RestService(
+        service="stripe",
+        base_url="https://api.stripe.com/v1",
+        auth="bearer",
+        # Read endpoints only for now: Stripe writes are form-encoded, which
+        # the framework does not yet send (see docs/IDEAS.md).
+        endpoints=(
+            _ep(
+                "stripe_list_charges",
+                "GET",
+                "/charges",
+                "List charges.",
+                scopes=["stripe:read"],
+                query=("limit", "customer"),
+            ),
+            _ep(
+                "stripe_list_customers",
+                "GET",
+                "/customers",
+                "List customers.",
+                scopes=["stripe:read"],
+                query=("limit", "email"),
+            ),
+            _ep(
+                "stripe_list_invoices",
+                "GET",
+                "/invoices",
+                "List invoices.",
+                scopes=["stripe:read"],
+                query=("limit", "customer", "status"),
+            ),
+            _ep(
+                "stripe_get_balance",
+                "GET",
+                "/balance",
+                "Retrieve the account balance.",
+                scopes=["stripe:read"],
+            ),
+        ),
+    ),
+    "bitbucket": RestService(
+        service="bitbucket",
+        base_url="https://api.bitbucket.org/2.0",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "bitbucket_list_workspaces",
+                "GET",
+                "/workspaces",
+                "List the caller's workspaces.",
+                scopes=["bitbucket:read"],
+            ),
+            _ep(
+                "bitbucket_list_repos",
+                "GET",
+                "/repositories/{workspace}",
+                "List repositories in a workspace.",
+                scopes=["bitbucket:read"],
+                query=("q", "sort"),
+            ),
+            _ep(
+                "bitbucket_get_repo",
+                "GET",
+                "/repositories/{workspace}/{repo_slug}",
+                "Get a repository.",
+                scopes=["bitbucket:read"],
+            ),
+            _ep(
+                "bitbucket_list_pull_requests",
+                "GET",
+                "/repositories/{workspace}/{repo_slug}/pullrequests",
+                "List pull requests in a repository.",
+                scopes=["bitbucket:read"],
+                query=("state",),
+            ),
+        ),
+    ),
+    "square": RestService(
+        service="square",
+        base_url="https://connect.squareup.com/v2",
+        auth="bearer",
+        headers={"Square-Version": "2024-01-18"},
+        endpoints=(
+            _ep(
+                "square_list_locations",
+                "GET",
+                "/locations",
+                "List business locations.",
+                scopes=["square:read"],
+            ),
+            _ep(
+                "square_list_payments",
+                "GET",
+                "/payments",
+                "List payments.",
+                scopes=["square:read"],
+                query=("begin_time", "end_time", "location_id"),
+            ),
+            _ep(
+                "square_list_customers",
+                "GET",
+                "/customers",
+                "List customers.",
+                scopes=["square:read"],
+                query=("cursor",),
+            ),
+        ),
+    ),
+    "freshdesk": RestService(
+        service="freshdesk",
+        base_url="",  # per-tenant, e.g. https://your-domain.freshdesk.com/api/v2
+        # Freshdesk uses HTTP Basic with the API key as the username; supply
+        # the credential pre-encoded as base64("<api_key>:X").
+        auth="basic",
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "freshdesk_list_tickets",
+                "GET",
+                "/tickets",
+                "List tickets.",
+                scopes=["freshdesk:read"],
+                query=("updated_since", "per_page"),
+            ),
+            _ep(
+                "freshdesk_get_ticket",
+                "GET",
+                "/tickets/{id}",
+                "Get a ticket by id.",
+                scopes=["freshdesk:read"],
+            ),
+            _ep(
+                "freshdesk_list_contacts",
+                "GET",
+                "/contacts",
+                "List contacts.",
+                scopes=["freshdesk:read"],
+                query=("email", "per_page"),
+            ),
+        ),
+    ),
 }
 
 
@@ -1116,6 +1297,16 @@ OAUTH: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "https://linear.app/oauth/authorize",
         "https://api.linear.app/oauth/token",
         ("read",),
+    ),
+    "bitbucket": (
+        "https://bitbucket.org/site/oauth2/authorize",
+        "https://bitbucket.org/site/oauth2/access_token",
+        ("repository", "account"),
+    ),
+    "square": (
+        "https://connect.squareup.com/oauth2/authorize",
+        "https://connect.squareup.com/oauth2/token",
+        ("MERCHANT_PROFILE_READ", "PAYMENTS_READ", "CUSTOMERS_READ"),
     ),
     "asana": (
         "https://app.asana.com/-/oauth_authorize",
