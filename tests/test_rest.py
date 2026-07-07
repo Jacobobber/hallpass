@@ -145,33 +145,54 @@ def test_input_schema_marks_path_and_required():
 
 
 def test_auth_styles():
-    from hallpass.rest import _auth_headers
+    from hallpass.rest import _apply_auth
 
-    bearer = RestService(service="s", base_url="x", endpoints=(), auth="bearer")
-    tok = RestService(service="s", base_url="x", endpoints=(), auth="token")
-    bot = RestService(service="s", base_url="x", endpoints=(), auth="bot")
-    hdr = RestService(service="s", base_url="x", endpoints=(), auth=("X-Api-Key",))
-    assert _auth_headers(bearer, "c") == {"Authorization": "Bearer c"}
-    assert _auth_headers(tok, "c") == {"Authorization": "token c"}
-    assert _auth_headers(bot, "c") == {"Authorization": "Bot c"}
-    assert _auth_headers(hdr, "c") == {"X-Api-Key": "c"}
+    def svc(auth):
+        return RestService(service="s", base_url="x", endpoints=(), auth=auth)
+
+    assert _apply_auth(svc("bearer"), "c") == ({"Authorization": "Bearer c"}, {})
+    assert _apply_auth(svc("token"), "c") == ({"Authorization": "token c"}, {})
+    assert _apply_auth(svc("bot"), "c") == ({"Authorization": "Bot c"}, {})
+    assert _apply_auth(svc("basic"), "c") == ({"Authorization": "Basic c"}, {})
+    assert _apply_auth(svc(("header", "X-Api-Key")), "c") == ({"X-Api-Key": "c"}, {})
+    assert _apply_auth(svc(("query", "api_token")), "c") == ({}, {"api_token": "c"})
 
 
 def test_catalog_is_well_formed():
     from hallpass import catalog
 
     all_names = catalog.names()
-    assert len(all_names) >= 15  # a real starter catalog
+    assert len(all_names) >= 30  # a broad catalog
     seen_tools: set[str] = set()
     for name in all_names:
-        conn = catalog.load(name, http=FakeHttp())
-        specs = conn.tools()
+        # per-tenant services need a base URL supplied at load
+        kwargs = {"http": FakeHttp()}
+        if catalog.requires_base_url(name):
+            kwargs["base_url"] = "https://tenant.example.com"
+        specs = catalog.load(name, **kwargs).tools()
         assert specs, f"{name} has no tools"
         for spec in specs:
             assert spec.name not in seen_tools, f"duplicate tool name {spec.name}"
             seen_tools.add(spec.name)
             assert spec.input_schema is not None
-    assert len(seen_tools) >= 40  # tens of tools across the catalog
+    assert len(seen_tools) >= 80  # tens of tools across the catalog
+
+
+def test_per_tenant_service_requires_base_url():
+    from hallpass import catalog
+
+    with pytest.raises(ValueError):
+        catalog.load("jira", http=FakeHttp())  # no base_url
+    conn = catalog.load("jira", http=FakeHttp(), base_url="https://site.atlassian.net")
+    assert conn.tools()
+
+
+def test_load_all_skips_per_tenant():
+    from hallpass import catalog
+
+    services = {c.service for c in catalog.load_all(http=FakeHttp())}
+    assert "github" in services
+    assert "jira" not in services  # per-tenant, skipped by load_all
 
 
 def test_catalog_connector_runs_end_to_end(keypair):

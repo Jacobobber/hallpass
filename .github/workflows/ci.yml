@@ -16,7 +16,9 @@ jobs:
           python-version: "3.12"
           enable-cache: false
       - run: uv run --with ruff ruff check .
+      - run: uv run --with ruff ruff format --check .
       - run: uv run --group dev --with mypy mypy --strict src
+      - run: python scripts/gen_catalog.py --check   # docs/CATALOG.md must be fresh
 
   core-only:
     # The "core installs with one runtime dependency, no mcp/httpx" claim is a

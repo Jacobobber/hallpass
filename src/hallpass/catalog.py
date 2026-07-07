@@ -24,7 +24,7 @@ from collections.abc import Iterable
 
 from .rest import Endpoint, HttpClient, RestConnector, RestService
 
-__all__ = ["names", "load", "load_all", "SERVICES"]
+__all__ = ["names", "load", "load_all", "requires_base_url", "SERVICES"]
 
 
 def _ep(
@@ -414,7 +414,7 @@ SERVICES: dict[str, RestService] = {
     "figma": RestService(
         service="figma",
         base_url="https://api.figma.com/v1",
-        auth=("X-Figma-Token",),
+        auth=("header", "X-Figma-Token"),
         endpoints=(
             _ep(
                 "figma_get_me",
@@ -564,6 +564,465 @@ SERVICES: dict[str, RestService] = {
             ),
         ),
     ),
+    "anthropic": RestService(
+        service="anthropic",
+        base_url="https://api.anthropic.com/v1",
+        auth=("header", "x-api-key"),
+        headers={"anthropic-version": "2023-06-01"},
+        endpoints=(
+            _ep(
+                "anthropic_list_models",
+                "GET",
+                "/models",
+                "List available models.",
+                scopes=["anthropic:read"],
+            ),
+        ),
+    ),
+    "mistral": RestService(
+        service="mistral",
+        base_url="https://api.mistral.ai/v1",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "mistral_list_models",
+                "GET",
+                "/models",
+                "List available models.",
+                scopes=["mistral:read"],
+            ),
+        ),
+    ),
+    "groq": RestService(
+        service="groq",
+        base_url="https://api.groq.com/openai/v1",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "groq_list_models",
+                "GET",
+                "/models",
+                "List available models.",
+                scopes=["groq:read"],
+            ),
+        ),
+    ),
+    "huggingface": RestService(
+        service="huggingface",
+        base_url="https://huggingface.co/api",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "hf_whoami",
+                "GET",
+                "/whoami-v2",
+                "Get the authenticated user.",
+                scopes=["huggingface:read"],
+            ),
+            _ep(
+                "hf_list_models",
+                "GET",
+                "/models",
+                "List models.",
+                scopes=["huggingface:read"],
+                query=("search", "limit"),
+            ),
+        ),
+    ),
+    "google_drive": RestService(
+        service="google_drive",
+        base_url="https://www.googleapis.com/drive/v3",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "gdrive_list_files",
+                "GET",
+                "/files",
+                "List files.",
+                scopes=["drive:read"],
+                query=("q", "pageSize"),
+            ),
+            _ep(
+                "gdrive_get_file",
+                "GET",
+                "/files/{file_id}",
+                "Get a file's metadata.",
+                scopes=["drive:read"],
+            ),
+        ),
+    ),
+    "google_sheets": RestService(
+        service="google_sheets",
+        base_url="https://sheets.googleapis.com/v4",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "gsheets_get_spreadsheet",
+                "GET",
+                "/spreadsheets/{spreadsheet_id}",
+                "Get a spreadsheet.",
+                scopes=["sheets:read"],
+            ),
+            _ep(
+                "gsheets_get_values",
+                "GET",
+                "/spreadsheets/{spreadsheet_id}/values/{range}",
+                "Get cell values in a range.",
+                scopes=["sheets:read"],
+            ),
+        ),
+    ),
+    "google_docs": RestService(
+        service="google_docs",
+        base_url="https://docs.googleapis.com/v1",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "gdocs_get_document",
+                "GET",
+                "/documents/{document_id}",
+                "Get a document.",
+                scopes=["docs:read"],
+            ),
+        ),
+    ),
+    "microsoft_graph": RestService(
+        service="microsoft_graph",
+        base_url="https://graph.microsoft.com/v1.0",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "msgraph_get_me",
+                "GET",
+                "/me",
+                "Get the signed-in user.",
+                scopes=["msgraph:read"],
+            ),
+            _ep(
+                "msgraph_list_messages",
+                "GET",
+                "/me/messages",
+                "List the user's mail.",
+                scopes=["msgraph:read"],
+                query=("$top",),
+            ),
+            _ep(
+                "msgraph_list_events",
+                "GET",
+                "/me/events",
+                "List calendar events.",
+                scopes=["msgraph:read"],
+                query=("$top",),
+            ),
+            _ep(
+                "msgraph_list_drive_root",
+                "GET",
+                "/me/drive/root/children",
+                "List files in the OneDrive root.",
+                scopes=["msgraph:read"],
+            ),
+        ),
+    ),
+    "box": RestService(
+        service="box",
+        base_url="https://api.box.com/2.0",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "box_get_me",
+                "GET",
+                "/users/me",
+                "Get the current user.",
+                scopes=["box:read"],
+            ),
+            _ep(
+                "box_list_folder_items",
+                "GET",
+                "/folders/{folder_id}/items",
+                "List items in a folder.",
+                scopes=["box:read"],
+            ),
+        ),
+    ),
+    "todoist": RestService(
+        service="todoist",
+        base_url="https://api.todoist.com/rest/v2",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "todoist_get_tasks",
+                "GET",
+                "/tasks",
+                "List active tasks.",
+                scopes=["todoist:read"],
+                query=("project_id",),
+            ),
+            _ep(
+                "todoist_get_projects",
+                "GET",
+                "/projects",
+                "List projects.",
+                scopes=["todoist:read"],
+            ),
+            _ep(
+                "todoist_create_task",
+                "POST",
+                "/tasks",
+                "Create a task.",
+                scopes=["todoist:write"],
+                body=("content", "project_id"),
+                required=("content",),
+            ),
+        ),
+    ),
+    "zoom": RestService(
+        service="zoom",
+        base_url="https://api.zoom.us/v2",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "zoom_get_me",
+                "GET",
+                "/users/me",
+                "Get the current user.",
+                scopes=["zoom:read"],
+            ),
+            _ep(
+                "zoom_list_meetings",
+                "GET",
+                "/users/me/meetings",
+                "List the user's meetings.",
+                scopes=["zoom:read"],
+                query=("type",),
+            ),
+        ),
+    ),
+    "spotify": RestService(
+        service="spotify",
+        base_url="https://api.spotify.com/v1",
+        auth="bearer",
+        endpoints=(
+            _ep(
+                "spotify_get_me",
+                "GET",
+                "/me",
+                "Get the current user's profile.",
+                scopes=["spotify:read"],
+            ),
+            _ep(
+                "spotify_get_playlists",
+                "GET",
+                "/me/playlists",
+                "List the user's playlists.",
+                scopes=["spotify:read"],
+                query=("limit",),
+            ),
+            _ep(
+                "spotify_search",
+                "GET",
+                "/search",
+                "Search the catalog.",
+                scopes=["spotify:read"],
+                query=("q", "type"),
+                required=("q", "type"),
+            ),
+        ),
+    ),
+    "monday": RestService(
+        service="monday",
+        base_url="https://api.monday.com",
+        auth="bearer",
+        endpoints=(
+            # monday.com is GraphQL: a single POST /v2 with a query body.
+            _ep(
+                "monday_graphql",
+                "POST",
+                "/v2",
+                "Run a monday.com GraphQL query.",
+                scopes=["monday:read"],
+                body=("query", "variables"),
+                required=("query",),
+            ),
+        ),
+    ),
+    "clickup": RestService(
+        service="clickup",
+        base_url="https://api.clickup.com/api/v2",
+        auth=(
+            "header",
+            "Authorization",
+        ),  # ClickUp personal token, raw in Authorization
+        endpoints=(
+            _ep(
+                "clickup_list_teams",
+                "GET",
+                "/team",
+                "List workspaces (teams).",
+                scopes=["clickup:read"],
+            ),
+            _ep(
+                "clickup_get_task",
+                "GET",
+                "/task/{task_id}",
+                "Get a task.",
+                scopes=["clickup:read"],
+            ),
+        ),
+    ),
+    "pipedrive": RestService(
+        service="pipedrive",
+        base_url="https://api.pipedrive.com/v1",
+        auth=("query", "api_token"),  # Pipedrive passes the token as a query param
+        endpoints=(
+            _ep(
+                "pipedrive_list_deals",
+                "GET",
+                "/deals",
+                "List deals.",
+                scopes=["pipedrive:read"],
+                query=("status",),
+            ),
+            _ep(
+                "pipedrive_list_persons",
+                "GET",
+                "/persons",
+                "List persons.",
+                scopes=["pipedrive:read"],
+            ),
+        ),
+    ),
+    "postmark": RestService(
+        service="postmark",
+        base_url="https://api.postmarkapp.com",
+        auth=("header", "X-Postmark-Server-Token"),
+        headers={"Accept": "application/json"},
+        endpoints=(
+            _ep(
+                "postmark_get_server",
+                "GET",
+                "/server",
+                "Get the server configuration.",
+                scopes=["postmark:read"],
+            ),
+        ),
+    ),
+    "jira": RestService(
+        service="jira",
+        base_url="",  # per-tenant, e.g. https://your-site.atlassian.net
+        auth="basic",  # base64("email:api_token")
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "jira_get_myself",
+                "GET",
+                "/rest/api/3/myself",
+                "Get the current user.",
+                scopes=["jira:read"],
+            ),
+            _ep(
+                "jira_search",
+                "GET",
+                "/rest/api/3/search",
+                "Search issues with JQL.",
+                scopes=["jira:read"],
+                query=("jql", "maxResults"),
+                required=("jql",),
+            ),
+            _ep(
+                "jira_get_issue",
+                "GET",
+                "/rest/api/3/issue/{issue_key}",
+                "Get an issue.",
+                scopes=["jira:read"],
+            ),
+        ),
+    ),
+    "confluence": RestService(
+        service="confluence",
+        base_url="",  # per-tenant, e.g. https://your-site.atlassian.net
+        auth="basic",
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "confluence_list_spaces",
+                "GET",
+                "/wiki/rest/api/space",
+                "List spaces.",
+                scopes=["confluence:read"],
+                query=("limit",),
+            ),
+            _ep(
+                "confluence_get_content",
+                "GET",
+                "/wiki/rest/api/content/{content_id}",
+                "Get a content item.",
+                scopes=["confluence:read"],
+            ),
+        ),
+    ),
+    "zendesk": RestService(
+        service="zendesk",
+        base_url="",  # per-tenant, e.g. https://your-subdomain.zendesk.com
+        auth="basic",  # base64("email/token:api_token")
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "zendesk_list_tickets",
+                "GET",
+                "/api/v2/tickets.json",
+                "List tickets.",
+                scopes=["zendesk:read"],
+            ),
+            _ep(
+                "zendesk_get_ticket",
+                "GET",
+                "/api/v2/tickets/{ticket_id}.json",
+                "Get a ticket.",
+                scopes=["zendesk:read"],
+            ),
+        ),
+    ),
+    "shopify": RestService(
+        service="shopify",
+        base_url="",  # per-shop, e.g. https://your-shop.myshopify.com
+        auth=("header", "X-Shopify-Access-Token"),
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "shopify_list_products",
+                "GET",
+                "/admin/api/2024-01/products.json",
+                "List products.",
+                scopes=["shopify:read"],
+                query=("limit",),
+            ),
+            _ep(
+                "shopify_list_orders",
+                "GET",
+                "/admin/api/2024-01/orders.json",
+                "List orders.",
+                scopes=["shopify:read"],
+                query=("status",),
+            ),
+        ),
+    ),
+    "salesforce": RestService(
+        service="salesforce",
+        base_url="",  # per-instance, e.g. https://your-instance.my.salesforce.com
+        auth="bearer",
+        requires_base_url=True,
+        endpoints=(
+            _ep(
+                "salesforce_query",
+                "GET",
+                "/services/data/v59.0/query",
+                "Run a SOQL query.",
+                scopes=["salesforce:read"],
+                query=("q",),
+                required=("q",),
+            ),
+        ),
+    ),
 }
 
 
@@ -572,15 +1031,30 @@ def names() -> list[str]:
     return sorted(SERVICES)
 
 
-def load(name: str, *, http: HttpClient | None = None) -> RestConnector:
-    """Build one prewired connector by name. Pass ``http`` to inject a
-    client (tests do this); the default uses httpx (the ``connectors``
-    extra)."""
+def requires_base_url(name: str) -> bool:
+    """Whether a connector needs a per-tenant base URL supplied at load
+    (Jira, Confluence, Zendesk, Shopify, Salesforce)."""
+    return SERVICES[name].requires_base_url
+
+
+def load(
+    name: str, *, http: HttpClient | None = None, base_url: str | None = None
+) -> RestConnector:
+    """Build one prewired connector by name. Pass ``http`` to inject a client
+    (tests do this); the default uses httpx (the ``connectors`` extra). For a
+    per-tenant service pass ``base_url`` with the tenant host, e.g.
+    ``load("jira", base_url="https://your-site.atlassian.net")``."""
     if name not in SERVICES:
         raise KeyError(f"no connector named {name!r}; see catalog.names()")
-    return RestConnector(SERVICES[name], http=http)
+    return RestConnector(SERVICES[name], http=http, base_url=base_url)
 
 
 def load_all(*, http: HttpClient | None = None) -> list[RestConnector]:
-    """Build every connector in the catalog."""
-    return [RestConnector(SERVICES[n], http=http) for n in names()]
+    """Build every connector that does not need per-tenant configuration.
+    Per-tenant services (see ``requires_base_url``) are skipped because they
+    need a base URL; load those individually with ``load(name, base_url=...)``."""
+    return [
+        RestConnector(SERVICES[n], http=http)
+        for n in names()
+        if not SERVICES[n].requires_base_url
+    ]

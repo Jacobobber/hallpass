@@ -100,9 +100,13 @@ class HttpxClient:
         return response.text
 
 
-# Auth style on RestService.auth: "bearer" -> Authorization: Bearer <cred>;
-# "token" -> Authorization: token <cred>; "bot" -> Authorization: Bot <cred>;
-# or a (header_name,) tuple to send the raw credential in a custom header.
+# Auth style on RestService.auth:
+#   "bearer" -> Authorization: Bearer <cred>
+#   "token"  -> Authorization: token <cred>
+#   "bot"    -> Authorization: Bot <cred>
+#   "basic"  -> Authorization: Basic <cred>   (cred is pre-encoded base64)
+#   ("header", name) -> send the raw credential in header `name`
+#   ("query",  name) -> send the raw credential as query parameter `name`
 
 
 @dataclass(frozen=True)
@@ -136,25 +140,39 @@ class RestService:
     service: str
     base_url: str
     endpoints: tuple[Endpoint, ...]
-    auth: str | tuple[str] = "bearer"
+    auth: str | tuple[str, str] = "bearer"
     headers: dict[str, str] = field(default_factory=dict)
+    # True for services with a per-tenant host (Jira, Zendesk, Salesforce);
+    # the base URL must be supplied at load time via base_url=.
+    requires_base_url: bool = False
 
 
-def _auth_headers(service: RestService, credential: str) -> dict[str, str]:
+def _apply_auth(
+    service: RestService, credential: str
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return (extra headers, extra query params) that carry the credential
+    in the service's auth style."""
     auth = service.auth
     if isinstance(auth, tuple):
-        return {auth[0]: credential}
+        kind, name = auth
+        if kind == "header":
+            return {name: credential}, {}
+        if kind == "query":
+            return {}, {name: credential}
+        raise ConnectorError(f"unknown auth tuple kind: {kind!r}")
     if auth == "bearer":
-        return {"Authorization": f"Bearer {credential}"}
+        return {"Authorization": f"Bearer {credential}"}, {}
     if auth == "token":
-        return {"Authorization": f"token {credential}"}
+        return {"Authorization": f"token {credential}"}, {}
     if auth == "bot":
-        return {"Authorization": f"Bot {credential}"}
+        return {"Authorization": f"Bot {credential}"}, {}
+    if auth == "basic":
+        return {"Authorization": f"Basic {credential}"}, {}
     raise ConnectorError(f"unknown auth style: {auth!r}")
 
 
 def _make_handler(
-    service: RestService, endpoint: Endpoint, http: HttpClient
+    service: RestService, endpoint: Endpoint, http: HttpClient, base_url: str
 ) -> Callable[..., Any]:
     def handler(ctx: UserContext, **args: Any) -> Any:
         credential = ctx.credential()
@@ -164,9 +182,11 @@ def _make_handler(
             path = endpoint.path.format(**args)
         except KeyError as exc:
             raise ConnectorError(f"missing path argument {exc}") from None
-        url = service.base_url.rstrip("/") + path
-        headers = {**service.headers, **_auth_headers(service, credential)}
+        url = base_url.rstrip("/") + path
+        auth_headers, auth_params = _apply_auth(service, credential)
+        headers = {**service.headers, **auth_headers}
         params = {k: args[k] for k in endpoint.query if k in args}
+        params.update(auth_params)
         body = {k: args[k] for k in endpoint.body if k in args} or None
         return http.request(
             endpoint.method, url, headers=headers, params=params, json=body
@@ -177,7 +197,9 @@ def _make_handler(
 
 class RestConnector:
     """A hallpass Connector built from a RestService description. Plug it
-    into ``Hallpass.add_connector`` like any other connector."""
+    into ``Hallpass.add_connector`` like any other connector. For a
+    per-tenant service (``requires_base_url``), pass ``base_url`` with the
+    tenant's host."""
 
     def __init__(
         self,
@@ -185,11 +207,18 @@ class RestConnector:
         *,
         http: HttpClient | None = None,
         available: Callable[[], bool] | None = None,
+        base_url: str | None = None,
     ) -> None:
+        if spec.requires_base_url and not base_url:
+            raise ValueError(
+                f"{spec.service} needs a per-tenant base_url "
+                "(e.g. https://your-site.example.com)"
+            )
         self.service = spec.service
         self._spec = spec
         self._http = http or HttpxClient()
         self._available = available
+        self._base_url = base_url or spec.base_url
 
     def tools(self) -> list[ToolSpec]:
         return [
@@ -197,7 +226,7 @@ class RestConnector:
                 name=endpoint.name,
                 description=endpoint.description,
                 required_scopes=endpoint.scopes,
-                handler=_make_handler(self._spec, endpoint, self._http),
+                handler=_make_handler(self._spec, endpoint, self._http, self._base_url),
                 connector=self._spec.service,
                 input_schema=endpoint.input_schema(),
             )

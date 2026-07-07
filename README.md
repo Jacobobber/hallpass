@@ -4,9 +4,21 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.5).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, and a catalog of prewired connectors are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.6).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, and a catalog of prewired connectors are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
+
+## Clone and run
+
+`uv` is the only prerequisite. From a fresh clone:
+
+```bash
+git clone https://github.com/Jacobobber/hallpass && cd hallpass
+uv run python examples/quickstart.py     # a gated, per-user tool server, no setup
+uv run --group dev pytest -q             # the full suite
+```
+
+That runs a working server with no identity provider and no config. The Quick start below is the ~10 lines behind it. More: the connector list is in [docs/CATALOG.md](docs/CATALOG.md), adding one is in [CONTRIBUTING.md](CONTRIBUTING.md), and where this is going is in [docs/IDEAS.md](docs/IDEAS.md).
 
 ## Quick start
 
