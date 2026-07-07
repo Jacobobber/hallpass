@@ -18,6 +18,16 @@ Nearly every public MCP server is single-user: one process, one identity, creden
 2. **Vault** (`CredentialVault`): downstream service credentials encrypted at rest (Fernet), keyed by (user subject, service). Tool handlers receive a context that can only reach the calling user's credential for that connector's service - cross-user access is unrepresentable at the seam, not forbidden by convention.
 3. **Gating** (`ToolGate`): connectors declare required scopes per tool. The catalog is per-principal, and the same check runs again at call time - a client that ignores the menu and calls directly is refused. Deny is the default everywhere.
 
+## Tool search (`search_tools`)
+
+Once a bridge fronts hundreds of tools you cannot list them all into an agent's context; the agent searches for the few it needs. `search_tools(token, query, limit=...)` ranks the caller's tools by relevance and returns the top few. The security property: **gating runs first, the ranker second**, so the ranker only ever sees the caller's authorized tools and search can never surface a tool the caller could not call, no matter how well the query matches it. The query text is never audited (only the hit count), since a query can carry sensitive content.
+
+The default `LexicalRanker` is a zero-dependency BM25 over each tool's name and description, splitting identifier names on camelCase and snake_case so "read a note" matches `read_note`. Swap in an embedding-based ranker by passing any `ToolRanker` to `Hallpass(ranker=...)`; it still only sees the authorized set.
+
+```python
+hits = app.search_tools(bearer_token, "send an email", limit=5)  # top authorized matches
+```
+
 ## The operational layer (optional)
 
 The three layers above decide access. Three more, all off by default and drawn from running a real bridge in production, keep it honest and safe once it has users:
