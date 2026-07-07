@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml/badge.svg)](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml)
 
-Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog.
+Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. As of v0.2 the same identity and scope model also governs agent-to-agent channels, so the one auth layer covers both agent-to-tools and agent-to-agent.
 
-**Status: pre-release (v0.1).** The core, the MCP adapter, and the security suite are in place and green; treat the API as unstable until v0.2.
+**Status: pre-release (v0.2).** Core, MCP adapter, operational layer (audit, rate limiting, availability), and agent-to-agent channels are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -25,6 +25,28 @@ The three layers above decide access. Three more, all off by default and drawn f
 - **Audit** (`AuditSink`): every list and call is recorded - who, what, allowed or denied, and why. Denials are audited too, not just successes, because a refused call is exactly the event a review looks for. Events carry the subject, tool, decision, and an opaque reason; never a token, claim value, or credential. `InMemoryAuditLog` is the built-in sink; production wires its own behind the protocol. Pass `audit=` to `Hallpass`.
 - **Rate limiting** (`RateLimiter`): per-subject call budgets, so one agent in a loop cannot hammer a downstream on everyone's behalf. `FixedWindowRateLimiter(max_calls, window_seconds)` is a thread-safe sliding window; an over-budget call is refused and audited. Pass `rate_limiter=` to `Hallpass`.
 - **Connector availability**: a connector may implement `available() -> bool`; if it reports unavailable at registration (its backend is not configured), its tools are never registered, so an unconfigured connector cannot advertise tools it cannot serve. `unavailable_connectors` reports what was skipped.
+
+## Agent-to-agent channels (`A2ABus`)
+
+The other layers bridge an agent to tools; this one bridges agents to each other, using the same identity and scope model. A channel is declared with a `ChannelPolicy` (the scopes a principal needs to post and to read); posting and reading are authorized against the caller's scopes and audited through the same sink. Deny is the default and denial is opaque: an undeclared channel and one you lack scope for fail with the same message, so a caller cannot enumerate channels it may not touch. Delivery follows the discipline of the companion [doorbell](https://github.com/Jacobobber/doorbell) project: an append-only per-channel log, a forward-only ack cursor per (subject, channel), and catch-up on reconnect, so a read without an ack means redelivery, never loss.
+
+```python
+from hallpass import A2ABus, ChannelPolicy, Principal
+
+bus = A2ABus(path="team.sqlite3", audit=my_sink)
+bus.declare_channel("build", ChannelPolicy(
+    post_scopes=frozenset({"build:write"}),
+    read_scopes=frozenset({"build:read"}),
+))
+
+orchestrator = Principal(subject="orchestrator", scopes=frozenset({"build:write"}))
+worker = Principal(subject="worker", scopes=frozenset({"build:read"}))
+
+bus.post(orchestrator, "build", "task: resize batch-7")
+for msg in bus.catch_up(worker, "build"):   # inherits anything left unacked
+    handle(msg)
+    bus.ack(worker, "build", msg.seq)        # ack only after handling
+```
 
 ## Quickstart
 
