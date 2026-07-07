@@ -18,12 +18,24 @@ jobs:
       - run: uv run --with ruff ruff check .
       - run: uv run --group dev --with mypy mypy --strict src
 
+  core-only:
+    # The "core installs with one runtime dependency, no mcp/httpx" claim is a
+    # headline; test it in an isolated env with only the base package present.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - run: uv run --isolated --no-project --with . python -c "import hallpass; from hallpass import Hallpass, TokenVerifier, CredentialVault; print('core-only import ok')"
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.12", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
