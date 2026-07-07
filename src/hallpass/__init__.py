@@ -38,6 +38,8 @@ from .rest import (
     HttpxClient,
     RestConnector,
     RestService,
+    RetryingHttpClient,
+    RetryPolicy,
     TokenRefresher,
 )
 from .search import LexicalRanker, ToolRanker, tokenize
@@ -45,7 +47,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "A2ABus",
@@ -77,6 +79,8 @@ __all__ = [
     "RateLimiter",
     "RestConnector",
     "RestService",
+    "RetryPolicy",
+    "RetryingHttpClient",
     "StaticJwks",
     "TokenHttp",
     "TokenRefresher",
