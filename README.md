@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.4).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, and a batteries-included setup are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.5).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, and a catalog of prewired connectors are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -42,6 +42,26 @@ app = build(
     rate_limit=(60, 60.0),                        # optional: 60 calls / 60s per user
 )
 ```
+
+## Prewired connectors
+
+hallpass ships a catalog of connectors to real services, so you do not have to write one to get started:
+
+```python
+from hallpass import catalog, dev_app
+
+app, token = dev_app(connectors=catalog.load_all())   # every catalog connector
+# or a subset: connectors=[catalog.load("github"), catalog.load("notion")]
+
+app._vault.store("alice", "github", "ghp_...")          # the user's connected token
+app.call_tool(token("alice", ["github:read"]), "github_list_my_repos", {})
+```
+
+A connector is a declaration, not code: a base URL, an auth style, and a list of endpoints, each becoming a gated tool that calls the service's REST API with the caller's vaulted credential. That is what makes the catalog cheap to grow toward comprehensive coverage. Today it covers 20 services and 48 tools (GitHub, GitLab, Notion, Slack, Gmail, Google Calendar, Airtable, HubSpot, Discord, Sentry, Asana, Linear, Figma, Vercel, SendGrid, Intercom, Calendly, Cloudflare, DigitalOcean, OpenAI); adding another is a ~10-line entry in `catalog.py`.
+
+Requires the `connectors` extra (`pip install 'hallpass[connectors]'`) for the default httpx client; inject any `HttpClient` to use your own. Auth model: the per-user credential (a PAT or OAuth token for the service) lives in the vault; hallpass does not yet run each provider's OAuth flow, so getting the token into the vault is the operator's job for now (a per-provider connect flow is on the roadmap).
+
+Writing your own connector, whether one declarative `RestService` or a `ToolKit` of decorated functions, stays as easy as the Quick start shows.
 
 ## The gap
 
