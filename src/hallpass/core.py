@@ -18,6 +18,7 @@ from .connectors import Connector, UserContext
 from .gating import ToolGate, ToolSpec, UnknownTool
 from .identity import Principal, TokenVerifier, VerificationError
 from .ratelimit import RateLimited, RateLimiter
+from .search import LexicalRanker, ToolRanker
 from .vault import CredentialVault
 
 __all__ = ["Hallpass"]
@@ -31,11 +32,13 @@ class Hallpass:
         vault: CredentialVault,
         audit: AuditSink | None = None,
         rate_limiter: RateLimiter | None = None,
+        ranker: ToolRanker | None = None,
     ) -> None:
         self._verifier = verifier
         self._vault = vault
         self._audit_sink = audit
         self._rate_limiter = rate_limiter
+        self._ranker = ranker or LexicalRanker()
         self._gate = ToolGate()
         self._services: dict[str, str] = {}  # tool name -> connector service
         self._unavailable: list[str] = []  # services skipped as unavailable
@@ -101,6 +104,34 @@ class Hallpass:
         catalog = self._gate.catalog(principal)
         self._record("list_tools", principal.subject, "allow")
         return catalog
+
+    def search_tools(
+        self, token: str, query: str, *, limit: int = 10
+    ) -> list[ToolSpec]:
+        """Rank the caller's AUTHORIZED tools by relevance to ``query`` and
+        return the top ``limit``. Gating runs first, so the ranker only sees
+        the authorized set, AND the core re-filters the ranker's output back
+        against that set by name: search can never surface a tool the caller
+        could not call, even if a custom or misbehaving ranker tries to add
+        one. The invariant is the core's, not a trusted ranker contract. The
+        query text is not recorded; only the hit count is audited (a query
+        may carry sensitive content)."""
+        try:
+            principal = self._verifier.verify(token)
+        except VerificationError:
+            self._record("search_tools", UNVERIFIED, "deny", reason="authentication")
+            raise
+        authorized = self._gate.catalog(principal)
+        allowed = {spec.name for spec in authorized}
+        ranked = [
+            spec
+            for spec in self._ranker.rank(query, authorized)
+            if spec.name in allowed
+        ][: max(limit, 0)]
+        self._record(
+            "search_tools", principal.subject, "allow", reason=f"hits={len(ranked)}"
+        )
+        return ranked
 
     def call_tool(self, token: str, name: str, arguments: dict[str, Any]) -> Any:
         """Verify, rate-limit, authorize at call time, then run the handler

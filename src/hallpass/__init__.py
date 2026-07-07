@@ -21,9 +21,10 @@ from .identity import (
     VerificationError,
 )
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
+from .search import LexicalRanker, ToolRanker, tokenize
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "A2ABus",
@@ -39,6 +40,7 @@ __all__ = [
     "HttpJwks",
     "InMemoryAuditLog",
     "JwksSource",
+    "LexicalRanker",
     "Principal",
     "RateLimited",
     "RateLimiter",
@@ -46,9 +48,11 @@ __all__ = [
     "TokenVerifier",
     "ToolDenied",
     "ToolGate",
+    "ToolRanker",
     "ToolSpec",
     "UnknownTool",
     "UserContext",
     "VaultError",
     "VerificationError",
+    "tokenize",
 ]
