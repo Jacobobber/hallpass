@@ -7,6 +7,7 @@ comes last: the core is protocol-agnostic and the MCP wiring is a thin
 adapter.
 """
 
+from . import catalog
 from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog
 from .connectors import Connector, UserContext
@@ -21,12 +22,20 @@ from .identity import (
     VerificationError,
 )
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
+from .rest import (
+    ConnectorError,
+    Endpoint,
+    HttpClient,
+    HttpxClient,
+    RestConnector,
+    RestService,
+)
 from .search import LexicalRanker, ToolRanker, tokenize
 from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "A2ABus",
@@ -36,16 +45,22 @@ __all__ = [
     "ChannelDenied",
     "ChannelPolicy",
     "Connector",
+    "ConnectorError",
     "CredentialVault",
+    "Endpoint",
     "FixedWindowRateLimiter",
     "Hallpass",
+    "HttpClient",
     "HttpJwks",
+    "HttpxClient",
     "InMemoryAuditLog",
     "JwksSource",
     "LexicalRanker",
     "Principal",
     "RateLimited",
     "RateLimiter",
+    "RestConnector",
+    "RestService",
     "StaticJwks",
     "TokenVerifier",
     "ToolDenied",
@@ -58,6 +73,7 @@ __all__ = [
     "VaultError",
     "VerificationError",
     "build",
+    "catalog",
     "dev_app",
     "tokenize",
 ]
