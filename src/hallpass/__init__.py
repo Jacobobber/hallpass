@@ -21,6 +21,15 @@ from .identity import (
     TokenVerifier,
     VerificationError,
 )
+from .oauth import (
+    HttpxTokenClient,
+    InMemoryPendingStore,
+    OAuthConnect,
+    OAuthError,
+    OAuthProvider,
+    PendingStore,
+    TokenHttp,
+)
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .rest import (
     ConnectorError,
@@ -35,7 +44,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "A2ABus",
@@ -53,15 +62,22 @@ __all__ = [
     "HttpClient",
     "HttpJwks",
     "HttpxClient",
+    "HttpxTokenClient",
     "InMemoryAuditLog",
+    "InMemoryPendingStore",
     "JwksSource",
     "LexicalRanker",
+    "OAuthConnect",
+    "OAuthError",
+    "OAuthProvider",
+    "PendingStore",
     "Principal",
     "RateLimited",
     "RateLimiter",
     "RestConnector",
     "RestService",
     "StaticJwks",
+    "TokenHttp",
     "TokenVerifier",
     "ToolDenied",
     "ToolGate",
