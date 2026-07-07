@@ -33,6 +33,7 @@ from .oauth import (
     TokenHttp,
 )
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
+from .sanitize import frame_untrusted, sanitize
 from .rest import (
     ConnectorError,
     Endpoint,
@@ -49,7 +50,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 __all__ = [
     "A2ABus",
@@ -105,5 +106,7 @@ __all__ = [
     "dev_app",
     "doctor",
     "format_report",
+    "frame_untrusted",
+    "sanitize",
     "tokenize",
 ]
