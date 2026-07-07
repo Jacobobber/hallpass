@@ -12,6 +12,7 @@ from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog
 from .connectors import Connector, UserContext
 from .core import Hallpass
+from .diagnostics import Finding, doctor, format_report
 from .gating import ToolDenied, ToolGate, ToolSpec, UnknownTool
 from .identity import (
     HttpJwks,
@@ -47,7 +48,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 __all__ = [
     "A2ABus",
@@ -60,6 +61,7 @@ __all__ = [
     "ConnectorError",
     "CredentialVault",
     "Endpoint",
+    "Finding",
     "FixedWindowRateLimiter",
     "Hallpass",
     "HttpClient",
@@ -97,5 +99,7 @@ __all__ = [
     "build",
     "catalog",
     "dev_app",
+    "doctor",
+    "format_report",
     "tokenize",
 ]
