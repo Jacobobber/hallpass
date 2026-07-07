@@ -38,10 +38,17 @@ CREATE TABLE IF NOT EXISTS credentials (
 class CredentialVault:
     def __init__(self, fernet_key: str | bytes, *, path: str = ":memory:") -> None:
         self._fernet = Fernet(fernet_key)
+        self._path = path
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
+
+    @property
+    def durable(self) -> bool:
+        """True when credentials are backed by a file that survives a restart;
+        False for the in-memory default. A diagnostic reads this to warn."""
+        return self._path != ":memory:"
 
     def close(self) -> None:
         with self._lock:
