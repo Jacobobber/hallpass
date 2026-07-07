@@ -185,3 +185,8 @@ class Hallpass:
 
     def principal(self, token: str) -> Principal:
         return self._verifier.verify(token)
+
+    def close(self) -> None:
+        """Release the credential vault's resources. Call when done with an
+        app you built (the factory owns the vault it created)."""
+        self._vault.close()

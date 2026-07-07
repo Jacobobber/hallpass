@@ -2,11 +2,46 @@
 
 [![CI](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml/badge.svg)](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml)
 
-Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. As of v0.2 the same identity and scope model also governs agent-to-agent channels, so the one auth layer covers both agent-to-tools and agent-to-agent.
+Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.2).** Core, MCP adapter, operational layer (audit, rate limiting, availability), and agent-to-agent channels are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.4).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, and a batteries-included setup are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
+
+## Quick start
+
+Define a connector by decorating functions, then get a fully gated server with no identity provider to stand up. About ten lines to a working, per-user, scope-gated tool server:
+
+```python
+from hallpass import ToolKit, dev_app
+
+kit = ToolKit("notes")
+
+@kit.tool(scopes=["notes:read"])
+def read_note(ctx, id: str):
+    "Read the caller's note by id."          # description comes from here
+    return f"note {id} for {ctx.principal.subject}"
+
+app, token = dev_app(connectors=[kit])       # zero-config dev server + a token minter
+print(app.call_tool(token("alice", ["notes:read"]), "read_note", {"id": "7"}))
+# -> note 7 for alice
+print(app.list_tools(token("bob", [])))       # bob lacks the scope: []
+```
+
+The tool's name comes from the function, its description from the docstring, and its argument schema from the signature. `dev_app` is for local development; for production, `build(...)` wires the same server against your real OIDC provider and a persistent vault key:
+
+```python
+from hallpass import build
+
+app = build(
+    issuer="https://your-idp.example.com",
+    audience="https://your-mcp-server.example.com",
+    jwks_url="https://your-idp.example.com/.well-known/jwks.json",
+    vault_key=os.environ["HALLPASS_VAULT_KEY"],   # persist this to survive restarts
+    connectors=[kit],
+    rate_limit=(60, 60.0),                        # optional: 60 calls / 60s per user
+)
+```
 
 ## The gap
 
@@ -58,7 +93,9 @@ for msg in bus.catch_up(worker, "build"):   # inherits anything left unacked
     bus.ack(worker, "build", msg.seq)        # ack only after handling
 ```
 
-## Quickstart
+## Assembling it by hand
+
+`build()` and `ToolKit` are conveniences over the same core; if you want to wire the layers yourself (or write a connector as a class), it looks like this:
 
 ```python
 from cryptography.fernet import Fernet
