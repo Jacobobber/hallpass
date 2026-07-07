@@ -38,13 +38,14 @@ from .rest import (
     HttpxClient,
     RestConnector,
     RestService,
+    TokenRefresher,
 )
 from .search import LexicalRanker, ToolRanker, tokenize
 from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "A2ABus",
@@ -78,6 +79,7 @@ __all__ = [
     "RestService",
     "StaticJwks",
     "TokenHttp",
+    "TokenRefresher",
     "TokenVerifier",
     "ToolDenied",
     "ToolGate",
