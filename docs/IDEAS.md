@@ -13,10 +13,10 @@ only when it is built and tested.
 - Batteries-included setup: `ToolKit` decorator connectors, `build()` / `dev_app()`.
 - Prewired connector catalog: declarative REST framework + a growing catalog (see docs/CATALOG.md), with bearer / token / bot / basic / header / query auth and per-tenant base URLs.
 - Per-provider OAuth connect flow (`OAuthConnect`): authorization-code with single-use state and PKCE, code exchange and refresh, tokens stored in the vault where the connector reads them; 20 catalog services carry prewired OAuth endpoints via `catalog.oauth_provider`.
+- Self-healing token refresh: `OAuthConnect.attach_refresh(connector)` renews a stale token and retries once on a 401/403 (non-auth errors are not retried, and a no-op refresh does not loop); `OAuthConnect.valid_token()` refreshes proactively when the stored token is expiring. `ConnectorError` now carries the HTTP `status`.
 
 ## OAuth follow-ups (surfaced while building it)
 
-- **Auto-refresh on expiry**: the refresh bundle already stores `expires_at`; a connector call could refresh transparently when the access token is expired instead of the operator calling `refresh()`. Needs the connector layer to consult the OAuth bundle, or a small "give me a valid token" helper the RestConnector uses.
 - **Shared pending store**: `InMemoryPendingStore` is single-process; behind a load balancer start and finish can hit different instances, so ship a store the operator backs with Redis or a table (the protocol is already there).
 - **Provider quirks**: some token endpoints nest or rename fields (Slack nests the token); a per-provider response adapter would absorb the odd ones. The registry covers URLs and scopes today.
 - **State bound to the browser session**: binding state to the operator's session cookie would harden against cross-user state replay.

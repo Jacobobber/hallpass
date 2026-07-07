@@ -105,6 +105,16 @@ class TokenHttp(Protocol):
         ...
 
 
+class _AutoRefreshable(Protocol):
+    """A connector that can be wired for seamless token refresh."""
+
+    service: str
+
+    def set_auto_refresh(
+        self, refresher: Callable[[str, str], object] | None
+    ) -> None: ...
+
+
 class HttpxTokenClient:
     """Default token-exchange client over httpx (the ``connectors`` extra)."""
 
@@ -231,6 +241,29 @@ class OAuthConnect:
         tokens.setdefault("refresh_token", refresh_token)
         self._store_tokens(subject, service, tokens)
         return str(tokens["access_token"])
+
+    def valid_token(self, subject: str, service: str, *, leeway: float = 60.0) -> str:
+        """Return a currently-valid access token, refreshing first if the
+        stored one is expired (or within ``leeway`` seconds of it). Use this
+        before a call when you would rather refresh proactively than let the
+        call 401. Raises if the service was never connected."""
+        access = self._vault.fetch(subject, service)
+        if access is None:
+            raise OAuthError(f"{service!r} is not connected for {subject!r}")
+        bundle_raw = self._vault.fetch(subject, self._oauth_slot(service))
+        bundle = json.loads(bundle_raw) if bundle_raw else {}
+        expires_at = bundle.get("expires_at")
+        expiring = expires_at is not None and self._now() + leeway >= float(expires_at)
+        if expiring and bundle.get("refresh_token"):
+            return self.refresh(subject, service)
+        return access
+
+    def attach_refresh(self, *connectors: _AutoRefreshable) -> None:
+        """Wire this flow's ``refresh`` into each connector so a stale token
+        renews transparently on a 401/403 and the call retries once. The one
+        line that makes OAuth connectors self-healing."""
+        for connector in connectors:
+            connector.set_auto_refresh(self.refresh)
 
     @staticmethod
     def _oauth_slot(service: str) -> str:
