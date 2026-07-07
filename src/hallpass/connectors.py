@@ -39,7 +39,14 @@ class UserContext:
 
 class Connector(Protocol):
     """Implement this to add a service. `service` names the credential
-    slot in the vault; `tools()` declares what the connector offers."""
+    slot in the vault; `tools()` declares what the connector offers.
+
+    Optionally implement ``available(self) -> bool``. When a connector
+    reports False at registration (its backend is not configured, a
+    required key is missing), Hallpass skips registering its tools, so an
+    unconfigured connector never advertises tools it cannot serve. A
+    connector that omits ``available`` is always treated as available.
+    """
 
     service: str
 

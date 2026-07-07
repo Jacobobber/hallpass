@@ -18,6 +18,14 @@ Nearly every public MCP server is single-user: one process, one identity, creden
 2. **Vault** (`CredentialVault`): downstream service credentials encrypted at rest (Fernet), keyed by (user subject, service). Tool handlers receive a context that can only reach the calling user's credential for that connector's service - cross-user access is unrepresentable at the seam, not forbidden by convention.
 3. **Gating** (`ToolGate`): connectors declare required scopes per tool. The catalog is per-principal, and the same check runs again at call time - a client that ignores the menu and calls directly is refused. Deny is the default everywhere.
 
+## The operational layer (optional)
+
+The three layers above decide access. Three more, all off by default and drawn from running a real bridge in production, keep it honest and safe once it has users:
+
+- **Audit** (`AuditSink`): every list and call is recorded - who, what, allowed or denied, and why. Denials are audited too, not just successes, because a refused call is exactly the event a review looks for. Events carry the subject, tool, decision, and an opaque reason; never a token, claim value, or credential. `InMemoryAuditLog` is the built-in sink; production wires its own behind the protocol. Pass `audit=` to `Hallpass`.
+- **Rate limiting** (`RateLimiter`): per-subject call budgets, so one agent in a loop cannot hammer a downstream on everyone's behalf. `FixedWindowRateLimiter(max_calls, window_seconds)` is a thread-safe sliding window; an over-budget call is refused and audited. Pass `rate_limiter=` to `Hallpass`.
+- **Connector availability**: a connector may implement `available() -> bool`; if it reports unavailable at registration (its backend is not configured), its tools are never registered, so an unconfigured connector cannot advertise tools it cannot serve. `unavailable_connectors` reports what was skipped.
+
 ## Quickstart
 
 ```python
