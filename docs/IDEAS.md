@@ -12,17 +12,14 @@ only when it is built and tested.
 - Tool search ("context to search"): gate-enforced, Unicode-aware, pluggable ranker.
 - Batteries-included setup: `ToolKit` decorator connectors, `build()` / `dev_app()`.
 - Prewired connector catalog: declarative REST framework + a growing catalog (see docs/CATALOG.md), with bearer / token / bot / basic / header / query auth and per-tenant base URLs.
+- Per-provider OAuth connect flow (`OAuthConnect`): authorization-code with single-use state and PKCE, code exchange and refresh, tokens stored in the vault where the connector reads them; 20 catalog services carry prewired OAuth endpoints via `catalog.oauth_provider`.
 
-## The biggest lever: per-provider OAuth connect flow
+## OAuth follow-ups (surfaced while building it)
 
-Today a connector needs the user's downstream token already in the vault; the
-operator puts it there. The missing piece that makes the catalog usable end to
-end is a per-provider OAuth connect flow: the user clicks "connect GitHub",
-completes the provider's OAuth, and the access token lands in the vault under
-that service, with refresh handled. This is what turns "N declared connectors"
-into "a user connects and it works," and it is the single highest-value next
-build. It pairs with the catalog: each service gains its authorize/token URLs
-and scopes as more declarative data.
+- **Auto-refresh on expiry**: the refresh bundle already stores `expires_at`; a connector call could refresh transparently when the access token is expired instead of the operator calling `refresh()`. Needs the connector layer to consult the OAuth bundle, or a small "give me a valid token" helper the RestConnector uses.
+- **Shared pending store**: `InMemoryPendingStore` is single-process; behind a load balancer start and finish can hit different instances, so ship a store the operator backs with Redis or a table (the protocol is already there).
+- **Provider quirks**: some token endpoints nest or rename fields (Slack nests the token); a per-provider response adapter would absorb the odd ones. The registry covers URLs and scopes today.
+- **State bound to the browser session**: binding state to the operator's session cookie would harden against cross-user state replay.
 
 ## Grow the catalog toward comprehensive
 

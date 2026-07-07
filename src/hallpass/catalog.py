@@ -13,18 +13,28 @@ Use it:
         app.add_connector(c)
 
 Auth: the per-user credential (a PAT or OAuth access token for the service)
-must be in the vault under the connector's ``service`` name. hallpass does
-not yet run each provider's OAuth flow; getting the token into the vault is
-the operator's job for now.
+lives in the vault under the connector's ``service`` name. For services with
+a known OAuth flow, ``oauth_provider(name, ...)`` builds an ``OAuthProvider``
+so ``OAuthConnect`` can put that token there automatically (see OAUTH below).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .oauth import OAuthProvider
 from .rest import Endpoint, HttpClient, RestConnector, RestService
 
-__all__ = ["names", "load", "load_all", "requires_base_url", "SERVICES"]
+__all__ = [
+    "names",
+    "load",
+    "load_all",
+    "requires_base_url",
+    "oauth_provider",
+    "oauth_services",
+    "SERVICES",
+    "OAUTH",
+]
 
 
 def _ep(
@@ -1058,3 +1068,140 @@ def load_all(*, http: HttpClient | None = None) -> list[RestConnector]:
         for n in names()
         if not SERVICES[n].requires_base_url
     ]
+
+
+# Known OAuth endpoints for services with a standard authorization-code flow:
+# service -> (authorize_url, token_url, default scopes). The operator supplies
+# the client id/secret and redirect URI via oauth_provider(). Google services
+# (drive, gmail, calendar, docs, sheets) share one OAuth flow; request the
+# per-API scopes you need.
+OAUTH: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "github": (
+        "https://github.com/login/oauth/authorize",
+        "https://github.com/login/oauth/access_token",
+        ("repo", "read:user"),
+    ),
+    "gitlab": (
+        "https://gitlab.com/oauth/authorize",
+        "https://gitlab.com/oauth/token",
+        ("read_api",),
+    ),
+    "slack": (
+        "https://slack.com/oauth/v2/authorize",
+        "https://slack.com/api/oauth.v2.access",
+        ("channels:read", "chat:write"),
+    ),
+    "notion": (
+        "https://api.notion.com/v1/oauth/authorize",
+        "https://api.notion.com/v1/oauth/token",
+        (),
+    ),
+    "discord": (
+        "https://discord.com/oauth2/authorize",
+        "https://discord.com/api/oauth2/token",
+        ("identify", "guilds"),
+    ),
+    "spotify": (
+        "https://accounts.spotify.com/authorize",
+        "https://accounts.spotify.com/api/token",
+        ("user-read-private", "playlist-read-private"),
+    ),
+    "zoom": ("https://zoom.us/oauth/authorize", "https://zoom.us/oauth/token", ()),
+    "hubspot": (
+        "https://app.hubspot.com/oauth/authorize",
+        "https://api.hubapi.com/oauth/v1/token",
+        ("crm.objects.contacts.read",),
+    ),
+    "linear": (
+        "https://linear.app/oauth/authorize",
+        "https://api.linear.app/oauth/token",
+        ("read",),
+    ),
+    "asana": (
+        "https://app.asana.com/-/oauth_authorize",
+        "https://app.asana.com/-/oauth_token",
+        ("default",),
+    ),
+    "box": (
+        "https://account.box.com/api/oauth2/authorize",
+        "https://api.box.com/oauth2/token",
+        (),
+    ),
+    "figma": (
+        "https://www.figma.com/oauth",
+        "https://api.figma.com/v1/oauth/token",
+        ("file_read",),
+    ),
+    "calendly": (
+        "https://auth.calendly.com/oauth/authorize",
+        "https://auth.calendly.com/oauth/token",
+        (),
+    ),
+    "intercom": (
+        "https://app.intercom.com/oauth",
+        "https://api.intercom.io/auth/eagle/token",
+        (),
+    ),
+    "microsoft_graph": (
+        "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        ("User.Read", "offline_access"),
+    ),
+    "google_drive": (
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        ("https://www.googleapis.com/auth/drive.readonly",),
+    ),
+    "gmail": (
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        ("https://www.googleapis.com/auth/gmail.readonly",),
+    ),
+    "google_calendar": (
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        ("https://www.googleapis.com/auth/calendar.readonly",),
+    ),
+    "google_docs": (
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        ("https://www.googleapis.com/auth/documents.readonly",),
+    ),
+    "google_sheets": (
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        ("https://www.googleapis.com/auth/spreadsheets.readonly",),
+    ),
+}
+
+
+def oauth_services() -> list[str]:
+    """Catalog services with a known OAuth flow."""
+    return sorted(OAUTH)
+
+
+def oauth_provider(
+    name: str,
+    *,
+    client_id: str,
+    redirect_uri: str,
+    client_secret: str | None = None,
+    scopes: Iterable[str] | None = None,
+    use_pkce: bool = True,
+) -> OAuthProvider:
+    """Build an OAuthProvider for a known service from operator credentials.
+    Defaults to the service's usual scopes; override with ``scopes``."""
+    if name not in OAUTH:
+        raise KeyError(
+            f"no known OAuth flow for {name!r}; see catalog.oauth_services()"
+        )
+    authorize_url, token_url, default_scopes = OAUTH[name]
+    return OAuthProvider(
+        authorize_url=authorize_url,
+        token_url=token_url,
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        client_secret=client_secret,
+        scopes=tuple(scopes) if scopes is not None else default_scopes,
+        use_pkce=use_pkce,
+    )
