@@ -34,9 +34,9 @@ cover, each a small framework addition:
 
 ## Reliability and correctness
 
+- ~~**Retry/backoff and rate-limit awareness** in the default HTTP client (honor `Retry-After`).~~ **Done** — `RetryingHttpClient` decorates any `HttpClient`: transient statuses (429, 5xx) retry with exponential backoff, obeying `Retry-After` when present; 401/403 are deliberately left to the connector auto-refresh. It is the default for the real network client. `ConnectorError` carries `status` and `retry_after`.
 - **Response guard**: cap and paginate large tool/connector responses so a big downstream payload cannot blow the agent's context (learned the hard way: silent truncation loses data, so paginate rather than cut).
 - **Idempotency on tool calls**: an optional idempotency key so an agent retrying a mutating call does not double-execute it.
-- **Retry/backoff and rate-limit awareness** in the default HTTP client (honor `Retry-After`).
 - **`doctor()` self-check**: assert config invariants (JWKS reachable, vault key valid, no connector declaring impossible scopes, catalog doc fresh).
 
 ## Identity and access

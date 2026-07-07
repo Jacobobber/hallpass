@@ -21,6 +21,7 @@ connector makes a stale token self-heal (a 401/403 renews and retries once).
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -34,6 +35,8 @@ __all__ = [
     "RestConnector",
     "HttpClient",
     "HttpxClient",
+    "RetryingHttpClient",
+    "RetryPolicy",
     "ConnectorError",
     "TokenRefresher",
 ]
@@ -51,11 +54,20 @@ class ConnectorError(Exception):
     The message is safe to surface; it never contains the credential.
 
     ``status`` carries the HTTP status when the failure came from the service,
-    so callers (and the auto-refresh path) can tell 401/403 apart from a 500."""
+    so callers (and the auto-refresh path) can tell 401/403 apart from a 500.
+    ``retry_after`` carries the service's Retry-After hint (seconds) when it
+    sent one, so the retry path can wait exactly as long as asked."""
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 class HttpClient(Protocol):
@@ -108,11 +120,77 @@ class HttpxClient:
             raise ConnectorError(
                 f"{method} {url} failed: HTTP {response.status_code}",
                 status=response.status_code,
+                retry_after=_parse_retry_after(response.headers.get("retry-after")),
             )
         ctype = response.headers.get("content-type", "")
         if "application/json" in ctype:
             return response.json()
         return response.text
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """A Retry-After header in the integer-seconds form. The HTTP-date form is
+    left to the backoff schedule (parsing it needs the current time)."""
+    if value is None:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """When to retry a transient failure and how long to wait. Defaults retry
+    the usual transient statuses a couple of times with exponential backoff."""
+
+    max_retries: int = 2
+    base_delay: float = 0.5
+    max_delay: float = 30.0
+    statuses: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+
+class RetryingHttpClient:
+    """Wrap any HttpClient so transient failures (429, 5xx) retry with backoff,
+    honoring the service's Retry-After when it sends one. Auth failures
+    (401/403) are deliberately NOT in the default set: those are the connector
+    auto-refresh's job, not a blind retry. The clock is injected, so the retry
+    schedule is exercised in tests without real waiting."""
+
+    def __init__(
+        self,
+        inner: HttpClient,
+        *,
+        policy: RetryPolicy | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._inner = inner
+        self._policy = policy or RetryPolicy()
+        self._sleep = sleep
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        params: dict[str, Any],
+        json: dict[str, Any] | None,
+    ) -> Any:
+        policy = self._policy
+        attempt = 0
+        while True:
+            try:
+                return self._inner.request(
+                    method, url, headers=headers, params=params, json=json
+                )
+            except ConnectorError as exc:
+                if exc.status not in policy.statuses or attempt >= policy.max_retries:
+                    raise
+                backoff = min(policy.base_delay * (2**attempt), policy.max_delay)
+                self._sleep(exc.retry_after if exc.retry_after is not None else backoff)
+                attempt += 1
 
 
 # Auth style on RestService.auth:
@@ -251,7 +329,9 @@ class RestConnector:
             )
         self.service = spec.service
         self._spec = spec
-        self._http = http or HttpxClient()
+        # Default the real network client to retry transient failures; an
+        # injected client (a fake in tests, or a pre-wrapped one) is used as-is.
+        self._http = http or RetryingHttpClient(HttpxClient())
         self._available = available
         self._base_url = base_url or spec.base_url
         self._on_auth_error: TokenRefresher | None = None
