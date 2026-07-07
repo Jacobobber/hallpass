@@ -13,9 +13,9 @@ default client uses ``httpx`` (the ``connectors`` extra).
 
 Auth model: the per-user credential lives in the vault (a PAT or an OAuth
 access token for the service), and the connector sends it in the style the
-service expects. hallpass does not yet perform the OAuth dance to each
-provider; getting the token into the vault is the operator's job for now
-(a per-provider connect flow is on the roadmap).
+service expects. ``hallpass.oauth.OAuthConnect`` runs the per-provider connect
+flow that puts the token there; wiring ``OAuthConnect.attach_refresh`` into a
+connector makes a stale token self-heal (a 401/403 renews and retries once).
 """
 
 from __future__ import annotations
@@ -35,15 +35,27 @@ __all__ = [
     "HttpClient",
     "HttpxClient",
     "ConnectorError",
+    "TokenRefresher",
 ]
 
 _PATH_PARAM = re.compile(r"\{(\w+)\}")
+
+# Renew (subject, service)'s stored token in the vault; OAuthConnect.refresh
+# fits this shape. Wired via RestConnector.set_auto_refresh for seamless retry.
+TokenRefresher = Callable[[str, str], object]
 
 
 class ConnectorError(Exception):
     """A connector could not complete a call: the user has not connected the
     service, a path argument is missing, or the service returned an error.
-    The message is safe to surface; it never contains the credential."""
+    The message is safe to surface; it never contains the credential.
+
+    ``status`` carries the HTTP status when the failure came from the service,
+    so callers (and the auto-refresh path) can tell 401/403 apart from a 500."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class HttpClient(Protocol):
@@ -93,7 +105,10 @@ class HttpxClient:
             timeout=self._timeout,
         )
         if response.status_code >= 400:
-            raise ConnectorError(f"{method} {url} failed: HTTP {response.status_code}")
+            raise ConnectorError(
+                f"{method} {url} failed: HTTP {response.status_code}",
+                status=response.status_code,
+            )
         ctype = response.headers.get("content-type", "")
         if "application/json" in ctype:
             return response.json()
@@ -172,7 +187,11 @@ def _apply_auth(
 
 
 def _make_handler(
-    service: RestService, endpoint: Endpoint, http: HttpClient, base_url: str
+    service: RestService,
+    endpoint: Endpoint,
+    http: HttpClient,
+    base_url: str,
+    refresher: Callable[[], TokenRefresher | None],
 ) -> Callable[..., Any]:
     def handler(ctx: UserContext, **args: Any) -> Any:
         credential = ctx.credential()
@@ -183,14 +202,30 @@ def _make_handler(
         except KeyError as exc:
             raise ConnectorError(f"missing path argument {exc}") from None
         url = base_url.rstrip("/") + path
-        auth_headers, auth_params = _apply_auth(service, credential)
-        headers = {**service.headers, **auth_headers}
-        params = {k: args[k] for k in endpoint.query if k in args}
-        params.update(auth_params)
+        query = {k: args[k] for k in endpoint.query if k in args}
         body = {k: args[k] for k in endpoint.body if k in args} or None
-        return http.request(
-            endpoint.method, url, headers=headers, params=params, json=body
-        )
+
+        def call(credential: str) -> Any:
+            auth_headers, auth_params = _apply_auth(service, credential)
+            headers = {**service.headers, **auth_headers}
+            params = {**query, **auth_params}
+            return http.request(
+                endpoint.method, url, headers=headers, params=params, json=body
+            )
+
+        try:
+            return call(credential)
+        except ConnectorError as exc:
+            # A stale OAuth token surfaces as 401/403; when the operator wired
+            # an auto-refresh, renew once and retry so the user never sees it.
+            refresh = refresher()
+            if refresh is None or exc.status not in (401, 403):
+                raise
+            refresh(ctx.principal.subject, service.service)
+            renewed = ctx.credential()
+            if renewed is None or renewed == credential:
+                raise  # refresh changed nothing; don't retry into the same wall
+            return call(renewed)
 
     return handler
 
@@ -219,6 +254,14 @@ class RestConnector:
         self._http = http or HttpxClient()
         self._available = available
         self._base_url = base_url or spec.base_url
+        self._on_auth_error: TokenRefresher | None = None
+
+    def set_auto_refresh(self, refresher: TokenRefresher | None) -> None:
+        """Wire a token refresher so a 401/403 renews the user's token and the
+        call retries once, transparently. Pass ``OAuthConnect.refresh`` (or use
+        ``OAuthConnect.attach_refresh(connector)``). Read at call time, so this
+        can be set after the connector is built but before it serves traffic."""
+        self._on_auth_error = refresher
 
     def tools(self) -> list[ToolSpec]:
         return [
@@ -226,7 +269,13 @@ class RestConnector:
                 name=endpoint.name,
                 description=endpoint.description,
                 required_scopes=endpoint.scopes,
-                handler=_make_handler(self._spec, endpoint, self._http, self._base_url),
+                handler=_make_handler(
+                    self._spec,
+                    endpoint,
+                    self._http,
+                    self._base_url,
+                    lambda: self._on_auth_error,
+                ),
                 connector=self._spec.service,
                 input_schema=endpoint.input_schema(),
             )
