@@ -7,6 +7,7 @@ comes last: the core is protocol-agnostic and the MCP wiring is a thin
 adapter.
 """
 
+from .audit import AuditEvent, AuditSink, InMemoryAuditLog
 from .connectors import Connector, UserContext
 from .core import Hallpass
 from .gating import ToolDenied, ToolGate, ToolSpec, UnknownTool
@@ -18,17 +19,24 @@ from .identity import (
     TokenVerifier,
     VerificationError,
 )
+from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
+    "AuditEvent",
+    "AuditSink",
     "Connector",
     "CredentialVault",
+    "FixedWindowRateLimiter",
     "Hallpass",
     "HttpJwks",
+    "InMemoryAuditLog",
     "JwksSource",
     "Principal",
+    "RateLimited",
+    "RateLimiter",
     "StaticJwks",
     "TokenVerifier",
     "ToolDenied",
