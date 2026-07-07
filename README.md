@@ -28,7 +28,7 @@ The three layers above decide access. Three more, all off by default and drawn f
 
 ## Agent-to-agent channels (`A2ABus`)
 
-The other layers bridge an agent to tools; this one bridges agents to each other, using the same identity and scope model. A channel is declared with a `ChannelPolicy` (the scopes a principal needs to post and to read); posting and reading are authorized against the caller's scopes and audited through the same sink. Deny is the default and denial is opaque: an undeclared channel and one you lack scope for fail with the same message, so a caller cannot enumerate channels it may not touch. Delivery follows the discipline of the companion [doorbell](https://github.com/Jacobobber/doorbell) project: an append-only per-channel log, a forward-only ack cursor per (subject, channel), and catch-up on reconnect, so a read without an ack means redelivery, never loss.
+The other layers bridge an agent to tools; this one bridges agents to each other, using the same identity and scope model. A channel is declared with a `ChannelPolicy` (the scopes a principal needs to post and to read); posting and reading are authorized against the caller's scopes and audited through the same sink. Deny is the default and denial is opaque: an undeclared channel and one you lack scope for fail with the same message, so a caller cannot enumerate channels it may not touch. Delivery is durable and self-contained: an append-only per-channel log, a forward-only ack cursor per (subject, channel), and catch-up on reconnect, so a read without an ack means redelivery, never loss.
 
 ```python
 from hallpass import A2ABus, ChannelPolicy, Principal
@@ -104,7 +104,7 @@ uv run --group dev pytest -q
 
 ## What this is not
 
-Not an identity provider (bring Keycloak, Auth0, or any OIDC issuer), not an MCP framework (the core is transport-agnostic; the MCP adapter is a thin optional extra), and not a gateway in front of servers - it is the inside of one server done right.
+Not an identity provider (bring any OIDC issuer), not an MCP framework (the core is transport-agnostic; the MCP adapter is a thin optional extra), and not a gateway in front of servers - it is the inside of one server done right.
 
 ## Contributing
 
