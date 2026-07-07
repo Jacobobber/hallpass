@@ -69,11 +69,31 @@ app._vault.store("alice", "github", "ghp_...")          # the user's connected t
 app.call_tool(token("alice", ["github:read"]), "github_list_my_repos", {})
 ```
 
-A connector is a declaration, not code: a base URL, an auth style, and a list of endpoints, each becoming a gated tool that calls the service's REST API with the caller's vaulted credential. That is what makes the catalog cheap to grow toward comprehensive coverage. Today it covers 20 services and 48 tools (GitHub, GitLab, Notion, Slack, Gmail, Google Calendar, Airtable, HubSpot, Discord, Sentry, Asana, Linear, Figma, Vercel, SendGrid, Intercom, Calendly, Cloudflare, DigitalOcean, OpenAI); adding another is a ~10-line entry in `catalog.py`.
+A connector is a declaration, not code: a base URL, an auth style, and a list of endpoints, each becoming a gated tool that calls the service's REST API with the caller's vaulted credential. That is what makes the catalog cheap to grow toward comprehensive coverage. Today it covers 41 services and 88 tools across dev, productivity, CRM, cloud, and messaging (GitHub, GitLab, Slack, Discord, Notion, the Google suite, Microsoft Graph, Jira, Confluence, Salesforce, HubSpot, Zendesk, Shopify, Linear, Asana, ClickUp, monday, Todoist, Airtable, Zoom, Box, Figma, Vercel, Cloudflare, DigitalOcean, Sentry, Intercom, Calendly, SendGrid, Postmark, Pipedrive, Spotify, and the LLM APIs); adding another is a ~10-line entry in `catalog.py`. The full list is [docs/CATALOG.md](docs/CATALOG.md).
 
-Requires the `connectors` extra (`pip install 'hallpass[connectors]'`) for the default httpx client; inject any `HttpClient` to use your own. Auth model: the per-user credential (a PAT or OAuth token for the service) lives in the vault; hallpass does not yet run each provider's OAuth flow, so getting the token into the vault is the operator's job for now (a per-provider connect flow is on the roadmap).
+Requires the `connectors` extra (`pip install 'hallpass[connectors]'`) for the default httpx client; inject any `HttpClient` to use your own. Writing your own connector, one declarative `RestService` or a `ToolKit` of decorated functions, stays as easy as the Quick start shows.
 
-Writing your own connector, whether one declarative `RestService` or a `ToolKit` of decorated functions, stays as easy as the Quick start shows.
+## Connecting a user (OAuth)
+
+For the 20 services with a known OAuth flow, hallpass drives the connect end to end so the user's token lands in the vault where the connector reads it. hallpass never touches a browser: `start` returns the authorize URL (with single-use state and PKCE), `finish` exchanges the code and stores the tokens, `refresh` renews them. You supply your OAuth client credentials and wire the two calls to your own redirect routes.
+
+```python
+from hallpass import OAuthConnect, catalog
+
+connect = OAuthConnect(
+    vault=app._vault,
+    providers={"github": catalog.oauth_provider(
+        "github", client_id=CID, client_secret=SECRET,
+        redirect_uri="https://your-app/oauth/callback",
+    )},
+)
+
+url = connect.start("alice", "github")     # redirect the user here
+# ... provider redirects back to your route with ?state=&code= ...
+connect.finish(state, code)                # token stored; catalog connector now works
+```
+
+State is single-use and expires, PKCE is used by default, and no token, code, or secret is ever written to a log or an error.
 
 ## The gap
 

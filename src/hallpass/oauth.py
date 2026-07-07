@@ -1,0 +1,251 @@
+"""Per-provider OAuth connect flow: a user connects a service and its access
+token lands in the vault, so the catalog's connectors work end to end.
+
+This is the piece that turns "N declared connectors" into "a user connects
+and it works." hallpass provides the transport-agnostic parts and never
+touches a browser:
+
+- ``start(subject, service)`` returns the provider's authorize URL, carrying
+  a single-use ``state`` (CSRF) and a PKCE challenge.
+- ``finish(state, code)`` validates the state, exchanges the code for tokens,
+  and stores the access token in the vault under the service (where the
+  connector reads it), plus a refresh bundle alongside.
+- ``refresh(subject, service)`` renews an expired access token.
+
+The operator wires start/finish to their own redirect routes and supplies the
+OAuth client credentials. Tokens, secrets, and codes never appear in a log or
+an error message.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import secrets
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+from urllib.parse import urlencode
+
+from .vault import CredentialVault
+
+__all__ = [
+    "OAuthProvider",
+    "OAuthConnect",
+    "OAuthError",
+    "PendingStore",
+    "InMemoryPendingStore",
+    "TokenHttp",
+    "HttpxTokenClient",
+]
+
+
+class OAuthError(Exception):
+    """An OAuth step failed: unknown/expired state, or the provider rejected
+    the exchange. The message never contains a token, code, or secret."""
+
+
+@dataclass(frozen=True)
+class OAuthProvider:
+    authorize_url: str
+    token_url: str
+    client_id: str
+    redirect_uri: str
+    client_secret: str | None = None  # omit for a public (PKCE-only) client
+    scopes: tuple[str, ...] = ()
+    use_pkce: bool = True
+    extra_authorize_params: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Pending:
+    subject: str
+    service: str
+    code_verifier: str
+    created_at: float
+
+
+class PendingStore(Protocol):
+    def put(self, state: str, pending: _Pending) -> None: ...
+    def pop(self, state: str) -> _Pending | None:
+        """Return and REMOVE the pending record (single-use), or None."""
+        ...
+
+
+class InMemoryPendingStore:
+    """Single-process pending-auth store with a TTL. Production behind a
+    load balancer wires a shared store (Redis, a table) via the protocol."""
+
+    def __init__(
+        self, *, ttl_seconds: float = 600.0, now: Callable[[], float] = time.time
+    ) -> None:
+        self._ttl = ttl_seconds
+        self._now = now
+        self._pending: dict[str, _Pending] = {}
+
+    def put(self, state: str, pending: _Pending) -> None:
+        self._pending[state] = pending
+
+    def pop(self, state: str) -> _Pending | None:
+        record = self._pending.pop(state, None)
+        if record is None:
+            return None
+        if self._now() - record.created_at > self._ttl:
+            return None
+        return record
+
+
+class TokenHttp(Protocol):
+    def post_form(
+        self, url: str, *, data: dict[str, str], headers: dict[str, str]
+    ) -> Any:
+        """Form-encoded POST to a token endpoint; return the parsed JSON."""
+        ...
+
+
+class HttpxTokenClient:
+    """Default token-exchange client over httpx (the ``connectors`` extra)."""
+
+    def __init__(self, *, timeout: float = 30.0) -> None:
+        self._timeout = timeout
+
+    def post_form(
+        self, url: str, *, data: dict[str, str], headers: dict[str, str]
+    ) -> Any:
+        try:
+            import httpx
+        except ImportError as exc:  # pragma: no cover
+            raise OAuthError(
+                "the OAuth flow needs the 'connectors' extra: "
+                "pip install 'hallpass[connectors]'"
+            ) from exc
+        response = httpx.post(url, data=data, headers=headers, timeout=self._timeout)
+        if response.status_code >= 400:
+            raise OAuthError(f"token endpoint returned HTTP {response.status_code}")
+        return response.json()
+
+
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)[:128]
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    return verifier, challenge
+
+
+class OAuthConnect:
+    """Drives the authorization-code flow and stores tokens in the vault."""
+
+    def __init__(
+        self,
+        *,
+        vault: CredentialVault,
+        providers: dict[str, OAuthProvider],
+        token_http: TokenHttp | None = None,
+        pending: PendingStore | None = None,
+        now: Callable[[], float] = time.time,
+    ) -> None:
+        self._vault = vault
+        self._providers = providers
+        self._http = token_http or HttpxTokenClient()
+        self._pending = pending or InMemoryPendingStore(now=now)
+        self._now = now
+
+    def _provider(self, service: str) -> OAuthProvider:
+        provider = self._providers.get(service)
+        if provider is None:
+            raise OAuthError(f"no OAuth provider configured for {service!r}")
+        return provider
+
+    def start(
+        self, subject: str, service: str, *, scopes: Iterable[str] | None = None
+    ) -> str:
+        """Return the provider authorize URL for this user to visit. A fresh
+        single-use state and PKCE verifier are recorded for finish()."""
+        provider = self._provider(service)
+        state = secrets.token_urlsafe(32)
+        verifier, challenge = _pkce_pair() if provider.use_pkce else ("", "")
+        self._pending.put(state, _Pending(subject, service, verifier, self._now()))
+        params = {
+            "response_type": "code",
+            "client_id": provider.client_id,
+            "redirect_uri": provider.redirect_uri,
+            "state": state,
+        }
+        wanted = tuple(scopes) if scopes is not None else provider.scopes
+        if wanted:
+            params["scope"] = " ".join(wanted)
+        if provider.use_pkce:
+            params["code_challenge"] = challenge
+            params["code_challenge_method"] = "S256"
+        params.update(provider.extra_authorize_params)
+        sep = "&" if "?" in provider.authorize_url else "?"
+        return f"{provider.authorize_url}{sep}{urlencode(params)}"
+
+    def finish(self, state: str, code: str) -> str:
+        """Validate the state, exchange the code, store the tokens, and
+        return the subject that connected."""
+        pending = self._pending.pop(state)
+        if pending is None:
+            raise OAuthError("unknown or expired OAuth state")
+        provider = self._provider(pending.service)
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": provider.redirect_uri,
+            "client_id": provider.client_id,
+        }
+        if provider.client_secret:
+            data["client_secret"] = provider.client_secret
+        if provider.use_pkce:
+            data["code_verifier"] = pending.code_verifier
+        tokens = self._http.post_form(
+            provider.token_url, data=data, headers={"Accept": "application/json"}
+        )
+        self._store_tokens(pending.subject, pending.service, tokens)
+        return pending.subject
+
+    def refresh(self, subject: str, service: str) -> str:
+        """Use the stored refresh token to get a new access token; update the
+        vault and return the new access token."""
+        provider = self._provider(service)
+        bundle = self._vault.fetch(subject, self._oauth_slot(service))
+        refresh_token = json.loads(bundle).get("refresh_token") if bundle else None
+        if not refresh_token:
+            raise OAuthError(f"no refresh token stored for {service!r}")
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": provider.client_id,
+        }
+        if provider.client_secret:
+            data["client_secret"] = provider.client_secret
+        tokens = self._http.post_form(
+            provider.token_url, data=data, headers={"Accept": "application/json"}
+        )
+        # A refresh response may omit a new refresh token; keep the old one.
+        tokens.setdefault("refresh_token", refresh_token)
+        self._store_tokens(subject, service, tokens)
+        return str(tokens["access_token"])
+
+    @staticmethod
+    def _oauth_slot(service: str) -> str:
+        return f"{service}:oauth"
+
+    def _store_tokens(self, subject: str, service: str, tokens: Any) -> None:
+        access = tokens.get("access_token")
+        if not access:
+            raise OAuthError("token response had no access_token")
+        # The connector reads the raw access token from the service slot.
+        self._vault.store(subject, service, str(access))
+        expires_in = tokens.get("expires_in")
+        bundle = {
+            "refresh_token": tokens.get("refresh_token"),
+            "expires_at": (self._now() + float(expires_in)) if expires_in else None,
+            "scope": tokens.get("scope"),
+        }
+        self._vault.store(subject, self._oauth_slot(service), json.dumps(bundle))
