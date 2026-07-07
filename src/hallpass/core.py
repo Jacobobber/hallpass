@@ -71,6 +71,31 @@ class Hallpass:
         unavailable; useful for a startup diagnostic."""
         return list(self._unavailable)
 
+    # -- read-only introspection (used by hallpass.diagnostics.doctor) -----
+
+    @property
+    def tool_names(self) -> list[str]:
+        """Every registered tool name, sorted."""
+        return sorted(self._services)
+
+    @property
+    def connector_names(self) -> list[str]:
+        """Every connector service that registered at least one tool."""
+        return sorted(set(self._services.values()))
+
+    @property
+    def has_audit(self) -> bool:
+        return self._audit_sink is not None
+
+    @property
+    def has_rate_limiter(self) -> bool:
+        return self._rate_limiter is not None
+
+    @property
+    def vault_durable(self) -> bool:
+        """Whether connected credentials survive a restart (see the vault)."""
+        return self._vault.durable
+
     def _record(
         self,
         action: str,
