@@ -198,8 +198,11 @@ class RetryingHttpClient:
 #   "token"  -> Authorization: token <cred>
 #   "bot"    -> Authorization: Bot <cred>
 #   "basic"  -> Authorization: Basic <cred>   (cred is pre-encoded base64)
-#   ("header", name) -> send the raw credential in header `name`
-#   ("query",  name) -> send the raw credential as query parameter `name`
+#   ("header", name)     -> send the raw credential in header `name`
+#   ("query",  name)     -> send the raw credential as query parameter `name`
+#   ("template", tmpl)   -> Authorization: tmpl.format(cred=<cred>), for services
+#                           with a non-standard scheme (PagerDuty's
+#                           "Token token={cred}", GoodData's "GoodData {cred}")
 
 
 @dataclass(frozen=True)
@@ -252,6 +255,8 @@ def _apply_auth(
             return {name: credential}, {}
         if kind == "query":
             return {}, {name: credential}
+        if kind == "template":
+            return {"Authorization": name.format(cred=credential)}, {}
         raise ConnectorError(f"unknown auth tuple kind: {kind!r}")
     if auth == "bearer":
         return {"Authorization": f"Bearer {credential}"}, {}

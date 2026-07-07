@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.9).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh, and transient-error retry with backoff are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.10).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh, and transient-error retry with backoff are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -69,13 +69,13 @@ app._vault.store("alice", "github", "ghp_...")          # the user's connected t
 app.call_tool(token("alice", ["github:read"]), "github_list_my_repos", {})
 ```
 
-A connector is a declaration, not code: a base URL, an auth style, and a list of endpoints, each becoming a gated tool that calls the service's REST API with the caller's vaulted credential. That is what makes the catalog cheap to grow toward comprehensive coverage. Today it covers 41 services and 88 tools across dev, productivity, CRM, cloud, and messaging (GitHub, GitLab, Slack, Discord, Notion, the Google suite, Microsoft Graph, Jira, Confluence, Salesforce, HubSpot, Zendesk, Shopify, Linear, Asana, ClickUp, monday, Todoist, Airtable, Zoom, Box, Figma, Vercel, Cloudflare, DigitalOcean, Sentry, Intercom, Calendly, SendGrid, Postmark, Pipedrive, Spotify, and the LLM APIs); adding another is a ~10-line entry in `catalog.py`. The full list is [docs/CATALOG.md](docs/CATALOG.md).
+A connector is a declaration, not code: a base URL, an auth style, and a list of endpoints, each becoming a gated tool that calls the service's REST API with the caller's vaulted credential. That is what makes the catalog cheap to grow toward comprehensive coverage. Today it covers 46 services and 106 tools across dev, productivity, CRM, cloud, payments, and messaging (GitHub, GitLab, Bitbucket, Slack, Discord, Notion, the Google suite, Microsoft Graph, Jira, Confluence, Salesforce, HubSpot, Zendesk, Shopify, Linear, Asana, ClickUp, monday, Todoist, Airtable, Zoom, Box, Figma, Vercel, Cloudflare, DigitalOcean, Sentry, Intercom, Calendly, SendGrid, Postmark, Pipedrive, PagerDuty, Stripe, Square, Freshdesk, Spotify, and the LLM APIs); adding another is a ~10-line entry in `catalog.py`. The full list is [docs/CATALOG.md](docs/CATALOG.md).
 
 Requires the `connectors` extra (`pip install 'hallpass[connectors]'`) for the default httpx client; inject any `HttpClient` to use your own. Writing your own connector, one declarative `RestService` or a `ToolKit` of decorated functions, stays as easy as the Quick start shows.
 
 ## Connecting a user (OAuth)
 
-For the 20 services with a known OAuth flow, hallpass drives the connect end to end so the user's token lands in the vault where the connector reads it. hallpass never touches a browser: `start` returns the authorize URL (with single-use state and PKCE), `finish` exchanges the code and stores the tokens, `refresh` renews them. You supply your OAuth client credentials and wire the two calls to your own redirect routes.
+For the 22 services with a known OAuth flow, hallpass drives the connect end to end so the user's token lands in the vault where the connector reads it. hallpass never touches a browser: `start` returns the authorize URL (with single-use state and PKCE), `finish` exchanges the code and stores the tokens, `refresh` renews them. You supply your OAuth client credentials and wire the two calls to your own redirect routes.
 
 ```python
 from hallpass import OAuthConnect, catalog

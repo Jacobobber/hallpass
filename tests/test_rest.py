@@ -156,6 +156,25 @@ def test_auth_styles():
     assert _apply_auth(svc("basic"), "c") == ({"Authorization": "Basic c"}, {})
     assert _apply_auth(svc(("header", "X-Api-Key")), "c") == ({"X-Api-Key": "c"}, {})
     assert _apply_auth(svc(("query", "api_token")), "c") == ({}, {"api_token": "c"})
+    # templated auth for non-standard schemes (PagerDuty: "Token token=<key>")
+    assert _apply_auth(svc(("template", "Token token={cred}")), "c") == (
+        {"Authorization": "Token token=c"},
+        {},
+    )
+
+
+def test_pagerduty_uses_templated_auth_end_to_end(app, keypair):
+    from hallpass import catalog
+
+    application, vault = app
+    http = FakeHttp()
+    application.add_connector(catalog.load("pagerduty", http=http))
+    vault.store("alice", "pagerduty", "pdkey")  # the user's PagerDuty API key
+
+    token = mint(keypair, sub="alice", scope="pagerduty:read")
+    application.call_tool(token, "pagerduty_list_services", {})
+    # the templated scheme renders the key into a non-Bearer Authorization header
+    assert http.calls[-1]["headers"]["Authorization"] == "Token token=pdkey"
 
 
 def test_catalog_is_well_formed():
