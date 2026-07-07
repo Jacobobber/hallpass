@@ -23,7 +23,7 @@ from .identity import (
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "A2ABus",
