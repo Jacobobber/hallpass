@@ -1229,23 +1229,37 @@ def requires_base_url(name: str) -> bool:
 
 
 def load(
-    name: str, *, http: HttpClient | None = None, base_url: str | None = None
+    name: str,
+    *,
+    http: HttpClient | None = None,
+    base_url: str | None = None,
+    max_response_bytes: int | None = None,
 ) -> RestConnector:
     """Build one prewired connector by name. Pass ``http`` to inject a client
     (tests do this); the default uses httpx (the ``connectors`` extra). For a
     per-tenant service pass ``base_url`` with the tenant host, e.g.
-    ``load("jira", base_url="https://your-site.atlassian.net")``."""
+    ``load("jira", base_url="https://your-site.atlassian.net")``. Pass
+    ``max_response_bytes`` to cap the size of a single response (see
+    ``guard_response``)."""
     if name not in SERVICES:
         raise KeyError(f"no connector named {name!r}; see catalog.names()")
-    return RestConnector(SERVICES[name], http=http, base_url=base_url)
+    return RestConnector(
+        SERVICES[name],
+        http=http,
+        base_url=base_url,
+        max_response_bytes=max_response_bytes,
+    )
 
 
-def load_all(*, http: HttpClient | None = None) -> list[RestConnector]:
+def load_all(
+    *, http: HttpClient | None = None, max_response_bytes: int | None = None
+) -> list[RestConnector]:
     """Build every connector that does not need per-tenant configuration.
     Per-tenant services (see ``requires_base_url``) are skipped because they
-    need a base URL; load those individually with ``load(name, base_url=...)``."""
+    need a base URL; load those individually with ``load(name, base_url=...)``.
+    ``max_response_bytes`` (if given) caps every connector's response size."""
     return [
-        RestConnector(SERVICES[n], http=http)
+        RestConnector(SERVICES[n], http=http, max_response_bytes=max_response_bytes)
         for n in names()
         if not SERVICES[n].requires_base_url
     ]
