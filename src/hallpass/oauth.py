@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
+from .consent import Consent, ConsentLedger
 from .vault import CredentialVault
 
 __all__ = [
@@ -65,6 +66,7 @@ class _Pending:
     service: str
     code_verifier: str
     created_at: float
+    scopes: tuple[str, ...] = ()
 
 
 class PendingStore(Protocol):
@@ -157,12 +159,14 @@ class OAuthConnect:
         providers: dict[str, OAuthProvider],
         token_http: TokenHttp | None = None,
         pending: PendingStore | None = None,
+        consent: ConsentLedger | None = None,
         now: Callable[[], float] = time.time,
     ) -> None:
         self._vault = vault
         self._providers = providers
         self._http = token_http or HttpxTokenClient()
         self._pending = pending or InMemoryPendingStore(now=now)
+        self._consent = consent
         self._now = now
 
     def _provider(self, service: str) -> OAuthProvider:
@@ -179,14 +183,16 @@ class OAuthConnect:
         provider = self._provider(service)
         state = secrets.token_urlsafe(32)
         verifier, challenge = _pkce_pair() if provider.use_pkce else ("", "")
-        self._pending.put(state, _Pending(subject, service, verifier, self._now()))
+        wanted = tuple(scopes) if scopes is not None else provider.scopes
+        self._pending.put(
+            state, _Pending(subject, service, verifier, self._now(), wanted)
+        )
         params = {
             "response_type": "code",
             "client_id": provider.client_id,
             "redirect_uri": provider.redirect_uri,
             "state": state,
         }
-        wanted = tuple(scopes) if scopes is not None else provider.scopes
         if wanted:
             params["scope"] = " ".join(wanted)
         if provider.use_pkce:
@@ -217,6 +223,14 @@ class OAuthConnect:
             provider.token_url, data=data, headers={"Accept": "application/json"}
         )
         self._store_tokens(pending.subject, pending.service, tokens)
+        if self._consent is not None:
+            # The scope the provider actually granted, if it echoed one; else
+            # what the user was sent to authorize.
+            granted = tokens.get("scope")
+            scopes = tuple(granted.split()) if granted else pending.scopes
+            self._consent.grant(
+                pending.subject, pending.service, scopes, at=self._now()
+            )
         return pending.subject
 
     def refresh(self, subject: str, service: str) -> str:
@@ -264,6 +278,23 @@ class OAuthConnect:
         line that makes OAuth connectors self-healing."""
         for connector in connectors:
             connector.set_auto_refresh(self.refresh)
+
+    def disconnect(self, subject: str, service: str) -> bool:
+        """Revoke a connection: forget the access token AND the refresh bundle,
+        and drop the consent record. Returns True if anything was removed. The
+        counterpart to a successful ``finish``; this is how a user takes their
+        credentials back. (It does not call the provider's own revoke endpoint;
+        wire that separately if the provider offers one.)"""
+        removed = self._vault.delete(subject, service)
+        removed = self._vault.delete(subject, self._oauth_slot(service)) or removed
+        if self._consent is not None:
+            removed = self._consent.revoke(subject, service) or removed
+        return removed
+
+    def consents(self, subject: str) -> list[Consent]:
+        """Every service this user has an active consent for. Requires a
+        consent ledger; without one, returns an empty list."""
+        return self._consent.list(subject) if self._consent is not None else []
 
     @staticmethod
     def _oauth_slot(service: str) -> str:

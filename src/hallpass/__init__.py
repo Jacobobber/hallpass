@@ -11,6 +11,7 @@ from . import catalog
 from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog
 from .connectors import Connector, UserContext
+from .consent import Consent, ConsentLedger, InMemoryConsentLedger
 from .core import Hallpass
 from .diagnostics import Finding, doctor, format_report
 from .gating import ToolDenied, ToolGate, ToolSpec, UnknownTool
@@ -48,7 +49,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 __all__ = [
     "A2ABus",
@@ -59,6 +60,8 @@ __all__ = [
     "ChannelPolicy",
     "Connector",
     "ConnectorError",
+    "Consent",
+    "ConsentLedger",
     "CredentialVault",
     "Endpoint",
     "Finding",
@@ -69,6 +72,7 @@ __all__ = [
     "HttpxClient",
     "HttpxTokenClient",
     "InMemoryAuditLog",
+    "InMemoryConsentLedger",
     "InMemoryPendingStore",
     "JwksSource",
     "LexicalRanker",

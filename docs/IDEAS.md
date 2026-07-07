@@ -42,7 +42,7 @@ cover, each a small framework addition:
 ## Identity and access
 
 - **Service (machine-to-machine) identities**: alongside user-delegated OAuth, let an agent authenticate as a service (client-credentials) with its own scopes.
-- **Consent records + revoke**: explicit per-user, per-service consent that can be listed and revoked, beyond what the token scopes imply.
+- ~~**Consent records + revoke**: explicit per-user, per-service consent that can be listed and revoked.~~ **Done** — a `ConsentLedger` (in-memory default, injectable) records the granted scopes and time on `OAuthConnect.finish`; `connect.consents(subject)` lists them and `connect.disconnect(subject, service)` revokes, clearing BOTH the access token and the refresh bundle from the vault. Follow-up: call the provider's own token-revocation endpoint on disconnect where one exists.
 - **A2A depth**: seats and seat policy (durable per-(channel, role) membership with self-service rebind), presence/live-roster, server-side catch-up and orphan sweep.
 - **A2A message sanitization**: render channel message bodies through a sanitizer (strip control characters, frame as untrusted) before they reach a model, since agents will read each other's messages.
 
