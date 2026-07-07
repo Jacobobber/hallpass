@@ -24,6 +24,7 @@ from .identity import (
     TokenVerifier,
     VerificationError,
 )
+from .idempotency import IdempotencyStore, InMemoryIdempotencyStore
 from .oauth import (
     HttpxTokenClient,
     InMemoryPendingStore,
@@ -51,7 +52,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 __all__ = [
     "A2ABus",
@@ -73,8 +74,10 @@ __all__ = [
     "HttpJwks",
     "HttpxClient",
     "HttpxTokenClient",
+    "IdempotencyStore",
     "InMemoryAuditLog",
     "InMemoryConsentLedger",
+    "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
     "JwksSource",
     "LexicalRanker",
