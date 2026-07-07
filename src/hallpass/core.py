@@ -17,6 +17,7 @@ from .audit import UNVERIFIED, AuditEvent, AuditSink
 from .connectors import Connector, UserContext
 from .gating import ToolGate, ToolSpec, UnknownTool
 from .identity import Principal, TokenVerifier, VerificationError
+from .idempotency import IdempotencyStore
 from .ratelimit import RateLimited, RateLimiter
 from .search import LexicalRanker, ToolRanker
 from .vault import CredentialVault
@@ -33,12 +34,14 @@ class Hallpass:
         audit: AuditSink | None = None,
         rate_limiter: RateLimiter | None = None,
         ranker: ToolRanker | None = None,
+        idempotency: IdempotencyStore | None = None,
     ) -> None:
         self._verifier = verifier
         self._vault = vault
         self._audit_sink = audit
         self._rate_limiter = rate_limiter
         self._ranker = ranker or LexicalRanker()
+        self._idempotency = idempotency
         self._gate = ToolGate()
         self._services: dict[str, str] = {}  # tool name -> connector service
         self._unavailable: list[str] = []  # services skipped as unavailable
@@ -158,10 +161,23 @@ class Hallpass:
         )
         return ranked
 
-    def call_tool(self, token: str, name: str, arguments: dict[str, Any]) -> Any:
+    def call_tool(
+        self,
+        token: str,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         """Verify, rate-limit, authorize at call time, then run the handler
-        with a context scoped to this principal and this connector's
-        service. Every outcome, allow or deny, is audited."""
+        with a context scoped to this principal and this connector's service.
+        Every outcome, allow or deny, is audited.
+
+        When ``idempotency_key`` is given and an idempotency store is wired, a
+        repeat of the same ``(subject, tool, key)`` returns the first call's
+        stored result instead of running the handler again -- so a retried
+        mutation happens at most once. Only successful results are remembered.
+        """
         try:
             principal = self._verifier.verify(token)
         except VerificationError:
@@ -197,12 +213,27 @@ class Hallpass:
             )
             raise
 
+        # Idempotency check runs after authorization, so an unauthorized caller
+        # can never probe the result cache. A hit short-circuits the handler.
+        store = self._idempotency if idempotency_key is not None else None
+        if store is not None and idempotency_key is not None:
+            hit, cached = store.get(principal.subject, name, idempotency_key)
+            if hit:
+                self._record(
+                    "call_tool", principal.subject, "allow", tool=name, reason="replay"
+                )
+                return cached
+
         context = UserContext(
             principal=principal,
             _vault=self._vault,
             _service=self._services[name],
         )
         result = spec.handler(context, **arguments)
+        # Remember only on success: a failed call leaves nothing, so a genuine
+        # retry can still go through.
+        if store is not None and idempotency_key is not None:
+            store.put(principal.subject, name, idempotency_key, result)
         self._record("call_tool", principal.subject, "allow", tool=name)
         return result
 

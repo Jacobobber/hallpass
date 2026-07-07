@@ -19,6 +19,7 @@ from .audit import AuditSink
 from .connectors import Connector
 from .core import Hallpass
 from .identity import HttpJwks, JwksSource, StaticJwks, TokenVerifier
+from .idempotency import IdempotencyStore
 from .ratelimit import FixedWindowRateLimiter, RateLimiter
 from .vault import CredentialVault
 
@@ -35,6 +36,7 @@ def build(
     vault_path: str = ":memory:",
     audit: AuditSink | None = None,
     rate_limit: tuple[int, float] | None = None,
+    idempotency: IdempotencyStore | None = None,
     connectors: Iterable[Connector] = (),
 ) -> Hallpass:
     """Assemble a ready Hallpass from minimal configuration.
@@ -55,7 +57,13 @@ def build(
     limiter: RateLimiter | None = None
     if rate_limit is not None:
         limiter = FixedWindowRateLimiter(rate_limit[0], rate_limit[1])
-    app = Hallpass(verifier=verifier, vault=vault, audit=audit, rate_limiter=limiter)
+    app = Hallpass(
+        verifier=verifier,
+        vault=vault,
+        audit=audit,
+        rate_limiter=limiter,
+        idempotency=idempotency,
+    )
     for connector in connectors:
         app.add_connector(connector)
     return app
