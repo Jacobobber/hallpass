@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 
 from .audit import AuditEvent, AuditSink
 from .identity import Principal
+from .sanitize import sanitize
 
 __all__ = ["ChannelPolicy", "ChannelDenied", "A2AMessage", "A2ABus"]
 
@@ -88,10 +89,19 @@ class A2ABus:
     """
 
     def __init__(
-        self, *, path: str = ":memory:", audit: AuditSink | None = None
+        self,
+        *,
+        path: str = ":memory:",
+        audit: AuditSink | None = None,
+        sanitize_reads: bool = True,
     ) -> None:
         self._policies: dict[str, ChannelPolicy] = {}
         self._audit = audit
+        # Bodies are written by other principals; on read they land in a
+        # reader's (often a model's) context. Neutralise control/escape
+        # spoofing on the way out by default. Storage keeps the raw bytes so
+        # an audit or export sees exactly what was sent.
+        self._sanitize_reads = sanitize_reads
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(
             path, check_same_thread=False, isolation_level=None, timeout=5.0
@@ -196,7 +206,8 @@ class A2ABus:
                 if not rows:
                     break
                 for seq, sender, body, created in rows:
-                    out.append(A2AMessage(channel, int(seq), sender, body, created))
+                    clean = sanitize(body) if self._sanitize_reads else body
+                    out.append(A2AMessage(channel, int(seq), sender, clean, created))
                 position = int(rows[-1][0])
         self._record(principal.subject, "a2a_read", "allow", channel)
         return out
