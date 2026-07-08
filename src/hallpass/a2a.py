@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS a2a_cursors (
     acked_seq INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (subject, channel)
 );
+
+CREATE TABLE IF NOT EXISTS a2a_presence (
+    channel   TEXT NOT NULL,
+    subject   TEXT NOT NULL,
+    last_seen REAL NOT NULL,
+    PRIMARY KEY (channel, subject)
+);
 """
 
 
@@ -242,3 +249,47 @@ class A2ABus:
                 self._conn.execute("ROLLBACK")
                 raise
         return int(new_row[0])
+
+    # -- presence / live roster --------------------------------------------
+
+    def announce(self, principal: Principal, channel: str) -> float:
+        """Record that this principal is live on the channel right now, and
+        return the timestamp. Asserting presence is a write, so it needs the
+        channel's post scope: a reader that may not post cannot claim a seat.
+        Idempotent — re-announcing just refreshes the heartbeat. Call it on a
+        timer to stay on the roster."""
+        policy = self._policies.get(channel)
+        need = policy.post_scopes if policy else frozenset()
+        self._authorize(principal, channel, need, "a2a_announce")
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO a2a_presence (channel, subject, last_seen)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(channel, subject) DO UPDATE"
+                " SET last_seen = excluded.last_seen",
+                (channel, principal.subject, now),
+            )
+        self._record(principal.subject, "a2a_announce", "allow", channel)
+        return now
+
+    def roster(
+        self, principal: Principal, channel: str, *, within: float = 30.0
+    ) -> list[str]:
+        """The subjects seen live on the channel within the last ``within``
+        seconds, sorted. Reading the roster needs the channel's read scope, so
+        who-is-here is gated exactly like the messages are. A subject that
+        stops heartbeating simply ages off; presence is soft state, never a
+        grant."""
+        policy = self._policies.get(channel)
+        need = policy.read_scopes if policy else frozenset()
+        self._authorize(principal, channel, need, "a2a_roster")
+        cutoff = time.time() - within
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT subject FROM a2a_presence"
+                " WHERE channel = ? AND last_seen >= ? ORDER BY subject",
+                (channel, cutoff),
+            ).fetchall()
+        self._record(principal.subject, "a2a_roster", "allow", channel)
+        return [str(r[0]) for r in rows]
