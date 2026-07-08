@@ -73,6 +73,8 @@ A connector is a declaration, not code: a base URL, an auth style, and a list of
 
 Requires the `connectors` extra (`pip install 'hallpass[connectors]'`) for the default httpx client; inject any `HttpClient` to use your own. Writing your own connector, one declarative `RestService` or a `ToolKit` of decorated functions, stays as easy as the Quick start shows.
 
+Endpoints send JSON bodies by default; one that sets `form=True` sends `application/x-www-form-urlencoded` instead, which is what unlocks form-only write APIs (Stripe's `stripe_create_customer` / `stripe_update_customer` ship on it). The default network client also retries transient failures (see the operational layer) and can cap oversized responses (`catalog.load(name, max_response_bytes=...)`).
+
 ## Connecting a user (OAuth)
 
 For the 22 services with a known OAuth flow, hallpass drives the connect end to end so the user's token lands in the vault where the connector reads it. hallpass never touches a browser: `start` returns the authorize URL (with single-use state and PKCE), `finish` exchanges the code and stores the tokens, `refresh` renews them. You supply your OAuth client credentials and wire the two calls to your own redirect routes.
@@ -141,6 +143,9 @@ The three layers above decide access. Three more, all off by default and drawn f
 - **Audit** (`AuditSink`): every list and call is recorded - who, what, allowed or denied, and why. Denials are audited too, not just successes, because a refused call is exactly the event a review looks for. Events carry the subject, tool, decision, and an opaque reason; never a token, claim value, or credential. `InMemoryAuditLog` is the built-in sink; production wires its own behind the protocol. Pass `audit=` to `Hallpass`.
 - **Rate limiting** (`RateLimiter`): per-subject call budgets, so one agent in a loop cannot hammer a downstream on everyone's behalf. `FixedWindowRateLimiter(max_calls, window_seconds)` is a thread-safe sliding window; an over-budget call is refused and audited. Pass `rate_limiter=` to `Hallpass`.
 - **Connector availability**: a connector may implement `available() -> bool`; if it reports unavailable at registration (its backend is not configured), its tools are never registered, so an unconfigured connector cannot advertise tools it cannot serve. `unavailable_connectors` reports what was skipped.
+- **Transient-error retry** (`RetryingHttpClient` / `RetryPolicy`): the default network client retries 429 and 5xx with exponential backoff, honoring `Retry-After` when the service sends it. 401/403 are deliberately excluded — those are the connector auth-refresh's job, not a blind retry.
+- **Response-size guard** (`guard_response`): pass `max_response_bytes=` to `RestConnector` / `catalog.load` and an oversized result becomes an explicit envelope (`hallpass:truncated`, byte counts, a UTF-8-safe preview, and guidance to re-query narrower) instead of silently flooding — or being silently truncated out of — the caller's context.
+- **Idempotency** (`IdempotencyStore`): pass `idempotency_key=` to `call_tool` with an injected store and a repeat of the same `(subject, tool, key)` returns the first result instead of running the handler again, so a retried mutation happens at most once. `InMemoryIdempotencyStore` is the built-in TTL default; only successful results are remembered, keys are scoped per subject and tool, and the check runs after authorization.
 
 ## Agent-to-agent channels (`A2ABus`)
 
@@ -174,9 +179,9 @@ A2A bodies are strings. Free prose is expensive and unreliable to parse; JSON is
 from hallpass import flex
 
 msg = flex.Message(kind="task", to=("alice", "bob"), refs=("PR-42",),
-                   fields={"pri": "high"}, note="resize the batch-7 images")
+                   fields={"pri": "high", "due": "today"}, note="resize the batch-7 images")
 bus.post(orchestrator, "build", flex.encode(msg))
-# -> task @alice @bob #PR-42 pri=high | resize the batch-7 images
+# -> task @alice @bob #PR-42 due=today pri=high | resize the batch-7 images
 for m in bus.catch_up(worker, "build"):
     got = flex.parse(m.body)   # got.kind == "task", got.to == ("alice", "bob"), ...
 ```
@@ -229,7 +234,7 @@ pip install git+https://github.com/Jacobobber/hallpass        # core
 pip install "hallpass[mcp] @ git+https://github.com/Jacobobber/hallpass"  # + MCP adapter
 ```
 
-Python 3.10+. One runtime dependency for the core (`pyjwt[crypto]`); the MCP adapter and the HTTP JWKS fetcher are optional extras. CI covers 3.10/3.12/3.14 on Linux and Windows, with ruff and `mypy --strict`.
+Python 3.10+. One runtime dependency for the core (`pyjwt[crypto]`); the MCP adapter and the HTTP JWKS fetcher are optional extras. CI covers 3.10 through 3.14 (all five) on Linux and Windows, with ruff and `mypy --strict`.
 
 ## The security suite
 
