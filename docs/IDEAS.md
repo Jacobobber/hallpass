@@ -9,6 +9,7 @@ only when it is built and tested.
 - Identity (OAuth 2.1 resource-server verification), credential vault, scope gating, MCP adapter.
 - Operational layer: audit trail (denials included), per-principal rate limiting, connector availability.
 - Agent-to-agent channels: authenticated, authorized, durable.
+- FLEX (`hallpass.flex`): a token-efficient A2A message language -- `<kind> [@recipient]* [#ref]* [key=value]* [ | note]`, ~44% smaller than compact JSON for a representative message, round-trips, tolerant parse, sanitized on the way in. Rides `A2ABus` unchanged (`encode`/`parse` around the string body).
 - Tool search ("context to search"): gate-enforced, Unicode-aware, pluggable ranker.
 - Batteries-included setup: `ToolKit` decorator connectors, `build()` / `dev_app()`.
 - Prewired connector catalog: declarative REST framework + a growing catalog (see docs/CATALOG.md), with bearer / token / bot / basic / header / query auth and per-tenant base URLs.

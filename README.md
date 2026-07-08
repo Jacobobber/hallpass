@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.17).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, and a `doctor()` config self-check are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.18).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, and a `doctor()` config self-check are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -165,6 +165,23 @@ for msg in bus.catch_up(worker, "build"):   # inherits anything left unacked
 ```
 
 A channel body is text one principal wrote and another (often a model) reads, so it is an injection surface. `catch_up` sanitizes bodies on read by default: terminal escape sequences, control characters, Unicode bidi overrides (Trojan-Source), and zero-width/invisible characters are stripped (ZWJ/ZWNJ and emoji are preserved). `frame_untrusted(text)` goes further, wrapping a body in an injection-resistant `<untrusted-message>` boundary before it reaches a model. hallpass neutralizes spoofing and hiding; it does not claim to detect semantic prompt-injection, which is why the frame says "data."
+
+### FLEX: a token-efficient message language
+
+A2A bodies are strings. Free prose is expensive and unreliable to parse; JSON is structured but pays for braces, quotes, and repeated keys on every message. **FLEX** (Fielded Lightweight EXchange) keeps the structure and drops the overhead:
+
+```python
+from hallpass import flex
+
+msg = flex.Message(kind="task", to=("alice", "bob"), refs=("PR-42",),
+                   fields={"pri": "high"}, note="resize the batch-7 images")
+bus.post(orchestrator, "build", flex.encode(msg))
+# -> task @alice @bob #PR-42 pri=high | resize the batch-7 images
+for m in bus.catch_up(worker, "build"):
+    got = flex.parse(m.body)   # got.kind == "task", got.to == ("alice", "bob"), ...
+```
+
+Grammar: `<kind> [@recipient]* [#ref]* [key=value]* [ | note]`. For a representative task message that is **70 bytes vs 126 for compact JSON — 44% smaller** (bytes as a tokenizer-agnostic proxy). `parse(encode(m)) == m` round-trips; `parse` is tolerant of hand-written input (unknown tokens fall into the note, nothing dropped) and runs the sanitizer first, since inbound messages are untrusted.
 
 ## Assembling it by hand
 

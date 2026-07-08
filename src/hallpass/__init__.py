@@ -7,7 +7,7 @@ comes last: the core is protocol-agnostic and the MCP wiring is a thin
 adapter.
 """
 
-from . import catalog
+from . import catalog, flex
 from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog
 from .connectors import Connector, UserContext
@@ -53,7 +53,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 
 __all__ = [
     "A2ABus",
@@ -112,6 +112,7 @@ __all__ = [
     "catalog",
     "dev_app",
     "doctor",
+    "flex",
     "format_report",
     "frame_untrusted",
     "guard_response",
