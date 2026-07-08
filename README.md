@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.7 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.8 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -184,6 +184,25 @@ bus.roster(orchestrator, "build", within=5.0) # tighter liveness window
 ```
 
 An orchestrator uses it to dispatch only to workers that are actually up, and to notice when one goes dark.
+
+### Direct messages (`open_dm`)
+
+A DM between two agents is not a new transport — it is one channel whose policy is a single scope that only the two parties hold, so privacy is the same scope gate as everything else. `direct_channel(a, b)` derives a stable, order-independent channel name and pair scope; `open_dm(bus, a, b)` declares it and returns the descriptor. You mint each party a token carrying that scope; a third party who learns the channel name still can't post or read it (it lacks the scope, and the bus denies it opaquely).
+
+```python
+from hallpass import A2ABus, Principal, open_dm
+
+bus = A2ABus(path="team.sqlite3")
+dm = open_dm(bus, "alice", "bob")             # order-independent; idempotent to re-open
+alice = Principal("alice", frozenset({dm.scope}))
+bob = Principal("bob", frozenset({dm.scope}))
+
+bus.post(alice, dm.name, "bob, can you take batch-7?")
+for msg in bus.catch_up(bob, dm.name):
+    handle(msg)
+```
+
+It is an ordinary channel once opened, so `post`/`catch_up`/`ack` and the live roster all work and stay gated to the pair. Runnable: [`examples/direct_messages.py`](examples/direct_messages.py).
 
 ### FLEX: a token-efficient message language
 
