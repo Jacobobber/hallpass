@@ -47,6 +47,7 @@ def _ep(
     query: tuple[str, ...] = (),
     body: tuple[str, ...] = (),
     required: Iterable[str] = (),
+    form: bool = False,
 ) -> Endpoint:
     return Endpoint(
         name=name,
@@ -57,6 +58,7 @@ def _ep(
         query=query,
         body=body,
         required=frozenset(required),
+        form=form,
     )
 
 
@@ -1077,8 +1079,8 @@ SERVICES: dict[str, RestService] = {
         service="stripe",
         base_url="https://api.stripe.com/v1",
         auth="bearer",
-        # Read endpoints only for now: Stripe writes are form-encoded, which
-        # the framework does not yet send (see docs/IDEAS.md).
+        # Stripe's write API is form-urlencoded, not JSON: those endpoints set
+        # form=True so the body is sent as application/x-www-form-urlencoded.
         endpoints=(
             _ep(
                 "stripe_list_charges",
@@ -1110,6 +1112,24 @@ SERVICES: dict[str, RestService] = {
                 "/balance",
                 "Retrieve the account balance.",
                 scopes=["stripe:read"],
+            ),
+            _ep(
+                "stripe_create_customer",
+                "POST",
+                "/customers",
+                "Create a customer (form-encoded body).",
+                scopes=["stripe:write"],
+                body=("email", "name", "description"),
+                form=True,
+            ),
+            _ep(
+                "stripe_update_customer",
+                "POST",
+                "/customers/{id}",
+                "Update a customer (form-encoded body).",
+                scopes=["stripe:write"],
+                body=("email", "name", "description"),
+                form=True,
             ),
         ),
     ),

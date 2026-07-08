@@ -80,9 +80,13 @@ class HttpClient(Protocol):
         headers: dict[str, str],
         params: dict[str, Any],
         json: dict[str, Any] | None,
+        data: dict[str, Any] | None = None,
     ) -> Any:
         """Perform the request and return the parsed response body (dict,
-        list, or str). Raise ConnectorError on a non-success status."""
+        list, or str). Raise ConnectorError on a non-success status. ``data``,
+        when given, is a form-urlencoded body (mutually exclusive with
+        ``json``); the handler only passes it for form-encoded endpoints, so a
+        JSON-only client never sees it."""
         ...
 
 
@@ -101,6 +105,7 @@ class HttpxClient:
         headers: dict[str, str],
         params: dict[str, Any],
         json: dict[str, Any] | None,
+        data: dict[str, Any] | None = None,
     ) -> Any:
         try:
             import httpx
@@ -115,6 +120,7 @@ class HttpxClient:
             headers=headers,
             params=params,
             json=json,
+            data=data,
             timeout=self._timeout,
         )
         if response.status_code >= 400:
@@ -178,13 +184,17 @@ class RetryingHttpClient:
         headers: dict[str, str],
         params: dict[str, Any],
         json: dict[str, Any] | None,
+        data: dict[str, Any] | None = None,
     ) -> Any:
         policy = self._policy
+        # Forward data= only when set, so a JSON-only inner client never sees it
+        # (same invariant the handler keeps for non-form endpoints).
+        extra = {"data": data} if data is not None else {}
         attempt = 0
         while True:
             try:
                 return self._inner.request(
-                    method, url, headers=headers, params=params, json=json
+                    method, url, headers=headers, params=params, json=json, **extra
                 )
             except ConnectorError as exc:
                 if exc.status not in policy.statuses or attempt >= policy.max_retries:
@@ -214,8 +224,9 @@ class Endpoint:
     path: str
     scopes: frozenset[str] = frozenset()
     query: tuple[str, ...] = ()  # tool args passed as query parameters
-    body: tuple[str, ...] = ()  # tool args passed as JSON body fields
+    body: tuple[str, ...] = ()  # tool args passed in the request body
     required: frozenset[str] = frozenset()  # required args beyond path params
+    form: bool = False  # send body as form-urlencoded instead of JSON
 
     def path_params(self) -> list[str]:
         return _PATH_PARAM.findall(self.path)
@@ -294,9 +305,21 @@ def _make_handler(
             auth_headers, auth_params = _apply_auth(service, credential)
             headers = {**service.headers, **auth_headers}
             params = {**query, **auth_params}
-            result = http.request(
-                endpoint.method, url, headers=headers, params=params, json=body
-            )
+            if endpoint.form:
+                # Form-urlencoded body (Stripe writes, some legacy APIs). Pass
+                # data= only here, so a JSON-only client never receives it.
+                result = http.request(
+                    endpoint.method,
+                    url,
+                    headers=headers,
+                    params=params,
+                    json=None,
+                    data=body,
+                )
+            else:
+                result = http.request(
+                    endpoint.method, url, headers=headers, params=params, json=body
+                )
             # Bound what reaches the caller's context; overflow is made visible,
             # never silently dropped (see guard_response).
             if max_response_bytes is not None:

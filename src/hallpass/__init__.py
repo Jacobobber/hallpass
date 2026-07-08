@@ -52,7 +52,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 __all__ = [
     "A2ABus",

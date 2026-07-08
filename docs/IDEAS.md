@@ -27,7 +27,7 @@ Adding a bearer/JSON service is a ~10-line declaration in `catalog.py`, so
 breadth is mostly data entry. Known gaps the current framework does not yet
 cover, each a small framework addition:
 
-- **Form-encoded bodies** (Stripe, some legacy APIs): add a body-encoding option to `RestService`.
+- ~~**Form-encoded bodies** (Stripe, some legacy APIs): add a body-encoding option.~~ **Done** — an endpoint sets `form=True` to send its body as `application/x-www-form-urlencoded` (via a new `data=` on the HTTP client) instead of JSON; `HttpClient`/`HttpxClient`/`RetryingHttpClient` carry it, and `data=` is passed only for form endpoints so JSON-only clients never see it. Stripe's write endpoints (`stripe_create_customer`, `stripe_update_customer`) ship on the back of it.
 - **GraphQL** (Linear, monday, GitHub v4): supported today as a single POST endpoint with a `query` body; a small GraphQL helper (named operations, variables) would make it first-class.
 - **Multi-credential services** (Twilio account SID + token, Datadog API + app key, Twitch token + client id): the vault stores one credential per (user, service); support a small credential bundle per service.
 - ~~**Non-standard token placement** (PagerDuty `Authorization: Token token=...`): a templated auth style, e.g. `("template", "Token token={cred}")`.~~ **Done** — the `("template", "Token token={cred}")` auth style renders the credential into any Authorization scheme; PagerDuty, Square, Bitbucket, Stripe (read), and Freshdesk were added on the back of it (catalog now 46 services / 106 tools).
