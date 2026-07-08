@@ -74,6 +74,11 @@ def handle_request(
                     "name": s.name,
                     "description": s.description,
                     "input_schema": s.input_schema,
+                    "annotations": {
+                        "read_only": s.annotations.read_only,
+                        "destructive": s.annotations.destructive,
+                        "idempotent": s.annotations.idempotent,
+                    },
                 }
                 for s in specs
             ]

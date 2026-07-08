@@ -20,7 +20,7 @@ import json
 from typing import Any, Awaitable, Callable
 
 from mcp.server.lowlevel import Server
-from mcp.types import TextContent, Tool
+from mcp.types import TextContent, Tool, ToolAnnotations
 
 from .core import Hallpass
 from .gating import UnknownTool
@@ -65,6 +65,11 @@ def build_mcp_server(
                 name=spec.name,
                 description=spec.description,
                 inputSchema=spec.input_schema or {"type": "object"},
+                annotations=ToolAnnotations(
+                    readOnlyHint=spec.annotations.read_only,
+                    destructiveHint=spec.annotations.destructive,
+                    idempotentHint=spec.annotations.idempotent,
+                ),
             )
             for spec in specs
         ]

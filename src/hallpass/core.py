@@ -64,6 +64,7 @@ class Hallpass:
                 handler=spec.handler,
                 connector=connector.service,
                 input_schema=spec.input_schema,
+                annotations=spec.annotations,
             )
             self._gate.register(named)
             self._services[spec.name] = connector.service

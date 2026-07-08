@@ -11,6 +11,7 @@ only when it is built and tested.
 - Agent-to-agent channels: authenticated, authorized, durable.
 - FLEX (`hallpass.flex`): a token-efficient A2A message language -- `<kind> [@recipient]* [#ref]* [key=value]* [ | note]`, ~44% smaller than compact JSON for a representative message, round-trips, tolerant parse, sanitized on the way in. Rides `A2ABus` unchanged (`encode`/`parse` around the string body).
 - Tool search ("context to search"): gate-enforced, Unicode-aware, pluggable ranker.
+- MCP tool annotations (`ToolAnnotations`): read-only / destructive / idempotent hints on every `ToolSpec`, auto-derived from the HTTP verb for catalog connectors, advertised through the MCP adapter and the HTTP server's `/tools`, so a client can warn before a destructive call. Advisory only; access stays scope-decided.
 - Batteries-included setup: `ToolKit` decorator connectors, `build()` / `dev_app()`.
 - Runnable server + CLI: `hallpass.http_server` is a dependency-free HTTP reference server (pure `handle_request` + stdlib `http.server`) that gates exactly like the core (per-bearer `/tools`, verified+gated `/call`, opaque 404, capped body, no credential/traceback leakage — security-reviewed); the `hallpass` CLI (`serve` / `doctor` / `catalog`) makes "clone and run a real multi-user server" one command.
 - Prewired connector catalog: declarative REST framework + a growing catalog (see docs/CATALOG.md), with bearer / token / bot / basic / header / query auth and per-tenant base URLs.
