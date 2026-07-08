@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.7.0]
+
+- **Live roster / presence** (`A2ABus.announce` / `A2ABus.roster`) — who is on a channel right now. An agent heartbeats with `announce`; `roster(channel, within=…)` returns the subjects seen within the window, sorted. Gated by the same scopes as the messages: `announce` needs the channel's post scope (asserting presence is a write, so a read-only principal cannot claim a seat), `roster` needs the read scope, and denial stays opaque (who-is-here does not leak channel existence). Presence is soft state — a subject that stops heartbeating ages off, and being on the roster is never a grant — so an orchestrator can dispatch only to workers that are actually up and notice when one goes dark. Backed by a per-channel presence table on the existing bus connection; additive.
+
 ## [1.6.0]
 
 - **Auth-native routing** (`Router`) — route a task to a worker by capability, where capability is the auth scope set. A worker registers its harness (granted scopes); a task declares the scopes it needs; `route` returns a worker whose harness covers them, round-robin across the eligible ones, or `None` if none is capable (visible, not a silent misroute). The differentiator the harness research called out: the same scopes that gate tool calls decide who is capable of a task, so work can't be routed to an agent that isn't authorized for it. Pair with `dispatch` or the task queue. Additive.

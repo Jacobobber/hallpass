@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.6 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.7 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -172,6 +172,18 @@ for msg in bus.catch_up(worker, "build"):   # inherits anything left unacked
 ```
 
 A channel body is text one principal wrote and another (often a model) reads, so it is an injection surface. `catch_up` sanitizes bodies on read by default: terminal escape sequences, control characters, Unicode bidi overrides (Trojan-Source), and zero-width/invisible characters are stripped (ZWJ/ZWNJ and emoji are preserved). `frame_untrusted(text)` goes further, wrapping a body in an injection-resistant `<untrusted-message>` boundary before it reaches a model. hallpass neutralizes spoofing and hiding; it does not claim to detect semantic prompt-injection, which is why the frame says "data."
+
+### Live roster (presence)
+
+Who is on a channel right now? An agent heartbeats with `announce`; `roster` lists the subjects seen within a window. Presence is gated by the same scopes as the messages — announcing is a write (post scope), reading the roster is a read (read scope) — and it is soft state: a subject that stops heartbeating simply ages off. Presence is never a grant, so it cannot be used to smuggle access past the scope gate.
+
+```python
+bus.announce(worker, "build")                 # on a timer, to stay live
+bus.roster(orchestrator, "build")             # -> ["worker"]  (seen in the last 30s)
+bus.roster(orchestrator, "build", within=5.0) # tighter liveness window
+```
+
+An orchestrator uses it to dispatch only to workers that are actually up, and to notice when one goes dark.
 
 ### FLEX: a token-efficient message language
 
