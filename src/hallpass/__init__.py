@@ -47,6 +47,9 @@ from .orchestrator import Handler, Orchestrator, Result, Task, Worker
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
 from .rest import (
+    BreakerPolicy,
+    CircuitBreakerHttpClient,
+    CircuitOpen,
     ConnectorError,
     Endpoint,
     HttpClient,
@@ -62,7 +65,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     "A2ABus",
@@ -72,8 +75,11 @@ __all__ = [
     "AgentSpec",
     "AuditEvent",
     "AuditSink",
+    "BreakerPolicy",
     "ChannelDenied",
     "ChannelPolicy",
+    "CircuitBreakerHttpClient",
+    "CircuitOpen",
     "Connector",
     "ConnectorError",
     "Consent",
