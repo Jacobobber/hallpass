@@ -48,7 +48,7 @@ cover, each a small framework addition:
 
 ## Evaluation (keep it honest)
 
-- **Auth-isolation fuzzing**: adversarial suites that try to break cross-user and scope isolation under generated inputs.
+- ~~**Auth-isolation fuzzing**: adversarial suites that try to break cross-user and scope isolation under generated inputs.~~ **Done** — `tests/test_properties.py` uses Hypothesis to assert the four core invariants across generated scope sets / subjects / queries: call-time gating (a tool runs iff the caller holds its scopes), vault isolation (no subject reads another's credential), search ⊆ authorized, and A2A read gating. A failing example prints the exact input that broke it.
 - **Tool-search quality benchmark**: a controlled measure of whether a ranking change surfaces the right tool more often, against a naive baseline. Run the control that can overturn the result.
 
 ## Architecture: one package or an umbrella?
