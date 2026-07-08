@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.5 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.6 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -213,6 +213,23 @@ print(orch.gather([task_id])[task_id])  # Result(ok=True, fields={"status": "don
 ```
 
 Because it rides `A2ABus`, dispatch and results are gated by the channel's scopes (the harness does not bypass the auth core), durable (a worker that dies mid-task sees it on reconnect), and audited through the same sink. Delivery is at-least-once, so `gather` de-duplicates by task id and handlers should be idempotent; a handler that raises produces a failed result carrying only the exception type, never its message. Addressing is by convention on a shared channel; for hard isolation, give each worker its own channel with its own read scope. A runnable end-to-end demo is [`examples/orchestrator.py`](examples/orchestrator.py).
+
+### Routing by capability
+
+`Router` picks a worker for a task by capability, where capability is the auth scope set. Each worker registers its harness; a task declares the scopes it needs; `route` returns a worker whose harness covers them (round-robin across the eligible ones):
+
+```python
+from hallpass import Router
+
+router = Router()
+router.register("reviewer",  {"github:read", "github:write"})
+router.register("messenger", {"slack:write"})
+
+router.route({"github:write"})   # -> "reviewer"
+router.route({"pagerduty:read"}) # -> None: nobody is capable, and that's visible
+```
+
+The routing decision uses the same scopes that gate tool calls, so work never lands on an agent that isn't authorized to do it, and an unroutable task surfaces as `None` rather than a silent misroute. Pair it with `dispatch` or the task queue: route first, then hand the task to the chosen worker.
 
 ### Spawning agents
 

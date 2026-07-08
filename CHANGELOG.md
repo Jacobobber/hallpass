@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.6.0]
+
+- **Auth-native routing** (`Router`) — route a task to a worker by capability, where capability is the auth scope set. A worker registers its harness (granted scopes); a task declares the scopes it needs; `route` returns a worker whose harness covers them, round-robin across the eligible ones, or `None` if none is capable (visible, not a silent misroute). The differentiator the harness research called out: the same scopes that gate tool calls decide who is capable of a task, so work can't be routed to an agent that isn't authorized for it. Pair with `dispatch` or the task queue. Additive.
+
 ## [1.5.0]
 
 - **Durable task queue** (`hallpass.taskqueue`) — `TaskQueue` on SQLite, closing the two gaps the harness research flagged (event-log resume, dedup + lease). `enqueue` writes a pending task; `claim` hands one worker exactly one task under a write-locked transaction (concurrent workers never claim the same one) and leases it; an expired lease makes an abandoned task claimable again (a dead worker doesn't strand it); `complete` is idempotent by id, so a re-run cannot overwrite a recorded result; `result` / `outstanding` survive a restart, so a resuming orchestrator sees what is still in flight. A coordination/durability primitive; the auth boundary stays on the tools a worker calls. Additive.

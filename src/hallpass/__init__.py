@@ -43,7 +43,7 @@ from .oauth import (
     SqlitePendingStore,
     TokenHttp,
 )
-from .orchestrator import Handler, Orchestrator, Result, Task, Worker
+from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
 from .taskqueue import LeasedTask, TaskQueue
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
@@ -66,7 +66,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 __all__ = [
     "A2ABus",
@@ -116,6 +116,7 @@ __all__ = [
     "RestService",
     "RetryPolicy",
     "RetryingHttpClient",
+    "Router",
     "SqliteAuditLog",
     "SqlitePendingStore",
     "Spawner",

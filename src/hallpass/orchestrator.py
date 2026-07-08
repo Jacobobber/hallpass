@@ -26,6 +26,7 @@ whitespace-free tokens (ids, enums, numbers); put freeform text in the ``note``.
 from __future__ import annotations
 
 import secrets
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -33,7 +34,7 @@ from . import flex
 from .a2a import A2ABus
 from .identity import Principal
 
-__all__ = ["Task", "Result", "Orchestrator", "Worker", "Handler"]
+__all__ = ["Task", "Result", "Orchestrator", "Worker", "Handler", "Router"]
 
 
 @dataclass(frozen=True)
@@ -195,3 +196,42 @@ class Worker:
             note=note,
         )
         self._bus.post(self._principal, self._channel, flex.encode(message))
+
+
+class Router:
+    """Route a task to a worker by capability, where capability is the auth
+    scope set. Each worker registers its harness (the scopes its token carries);
+    a task declares the scopes it needs; ``route`` returns a worker whose harness
+    covers them, round-robin across the eligible ones. Auth-native: the same
+    scopes that gate tool calls decide who is *capable* of a task, so work never
+    lands on an agent that could not perform it anyway (and if none is capable,
+    that is visible, not a silent misroute). Pair it with ``dispatch`` or a
+    ``TaskQueue``: route first, then hand the task to the chosen worker."""
+
+    def __init__(self) -> None:
+        self._workers: dict[str, frozenset[str]] = {}
+        self._rr = 0
+        self._lock = threading.Lock()
+
+    def register(self, worker: str, scopes: Iterable[str]) -> None:
+        """Declare a worker and the scopes its harness grants."""
+        with self._lock:
+            self._workers[worker] = frozenset(scopes)
+
+    def candidates(self, required: Iterable[str]) -> list[str]:
+        """Every registered worker whose harness covers ``required``, sorted."""
+        need = frozenset(required)
+        with self._lock:
+            return sorted(w for w, s in self._workers.items() if need <= s)
+
+    def route(self, required: Iterable[str]) -> str | None:
+        """A capable worker for a task needing ``required`` scopes, or None if
+        none is capable. Round-robins across the eligible workers so repeated
+        routes spread the load."""
+        eligible = self.candidates(required)
+        if not eligible:
+            return None
+        with self._lock:
+            pick = eligible[self._rr % len(eligible)]
+            self._rr += 1
+        return pick
