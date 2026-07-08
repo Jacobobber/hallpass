@@ -40,6 +40,9 @@ __all__ = [
     "HttpxClient",
     "RetryingHttpClient",
     "RetryPolicy",
+    "CircuitBreakerHttpClient",
+    "BreakerPolicy",
+    "CircuitOpen",
     "ConnectorError",
     "TokenRefresher",
 ]
@@ -228,6 +231,80 @@ class RetryingHttpClient:
                 backoff = min(policy.base_delay * (2**attempt), policy.max_delay)
                 self._sleep(exc.retry_after if exc.retry_after is not None else backoff)
                 attempt += 1
+
+
+class CircuitOpen(ConnectorError):
+    """Raised instead of calling a downstream whose circuit breaker is open:
+    it has been failing, so the call fails fast rather than piling on."""
+
+
+@dataclass(frozen=True)
+class BreakerPolicy:
+    failure_threshold: int = 5  # consecutive failures that trip the breaker open
+    reset_after: float = 30.0  # seconds open before a single half-open probe
+    # Which failures count toward tripping: server/gateway errors and
+    # connection-level errors (status None). Client errors (401/403/404) are
+    # real answers, not outages, and never trip it.
+    trip_statuses: frozenset[int] = frozenset({500, 502, 503, 504})
+
+
+class CircuitBreakerHttpClient:
+    """Wrap any HttpClient with a circuit breaker. After ``failure_threshold``
+    consecutive outages the breaker opens and calls fail fast (``CircuitOpen``,
+    no downstream hit) for ``reset_after`` seconds; then one half-open probe
+    either closes it (on success) or re-opens it. Stops a struggling downstream
+    from being hammered by a whole fleet of agents. Compose it *around* the
+    retry client so the breaker counts an outage only after retries are spent.
+    The clock is injected, so the state machine is tested without waiting."""
+
+    def __init__(
+        self,
+        inner: HttpClient,
+        *,
+        policy: BreakerPolicy | None = None,
+        now: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._inner = inner
+        self._policy = policy or BreakerPolicy()
+        self._now = now
+        self._lock = threading.Lock()
+        self._failures = 0
+        self._opened_at: float | None = None
+
+    def _is_outage(self, exc: ConnectorError) -> bool:
+        return exc.status is None or exc.status in self._policy.trip_statuses
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        params: dict[str, Any],
+        json: dict[str, Any] | None,
+        data: dict[str, Any] | None = None,
+    ) -> Any:
+        with self._lock:
+            if self._opened_at is not None:
+                if self._now() - self._opened_at < self._policy.reset_after:
+                    raise CircuitOpen(f"circuit open for {url}", status=503)
+                # else: fall through as a single half-open probe
+        extra = {"data": data} if data is not None else {}
+        try:
+            result = self._inner.request(
+                method, url, headers=headers, params=params, json=json, **extra
+            )
+        except ConnectorError as exc:
+            if self._is_outage(exc):
+                with self._lock:
+                    self._failures += 1
+                    if self._failures >= self._policy.failure_threshold:
+                        self._opened_at = self._now()
+            raise
+        with self._lock:  # a success (incl. a client error that did not raise) heals it
+            self._failures = 0
+            self._opened_at = None
+        return result
 
 
 # Auth style on RestService.auth:

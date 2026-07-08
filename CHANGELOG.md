@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.4.0]
+
+- **Circuit breaker** (`CircuitBreakerHttpClient` / `BreakerPolicy`) — wrap any `HttpClient` (compose it around the retry client) and, after `failure_threshold` consecutive outages (5xx or connection-level errors) to a service, the breaker opens and calls fail fast with `CircuitOpen` for `reset_after` seconds; then one half-open probe closes it on success or re-opens it. Backpressure so a fleet of agents can't hammer a struggling downstream. Client errors (401/403/404) are real answers, not outages, and never trip it; a success resets the count. The clock is injected. Additive.
+
 ## [1.3.0]
 
 Performance, informed by how the popular harnesses stay fast and measured with a new `evals/benchmark.py`:
