@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml/badge.svg)](https://github.com/Jacobobber/hallpass/actions/workflows/ci.yml)
 
-Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
+Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.0 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.1 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that drives worker agents over them, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -188,6 +188,30 @@ for m in bus.catch_up(worker, "build"):
 ```
 
 Grammar: `<kind> [@recipient]* [#ref]* [key=value]* [ | note]`. For a representative task message that is **70 bytes vs 126 for compact JSON — 44% smaller** (bytes as a tokenizer-agnostic proxy). `parse(encode(m)) == m` round-trips; `parse` is tolerant of hand-written input (unknown tokens fall into the note, nothing dropped) and runs the sanitizer first, since inbound messages are untrusted.
+
+## Orchestrating agents
+
+The channel and FLEX compose into a coordination layer: one agent driving others. The orchestrator and each worker are separate principals on an authorized channel; a task is a FLEX message addressed to a worker and tagged with an id, and the result comes back tagged with the same id.
+
+```python
+from hallpass import A2ABus, ChannelPolicy, Orchestrator, Principal, Worker
+
+bus = A2ABus(path="team.sqlite3")
+bus.declare_channel("work", ChannelPolicy())
+
+worker = Worker(bus, Principal("resizer", frozenset()), "work")
+
+@worker.handle("resize")
+def resize(task):
+    return {"status": "done", "width": task.args["width"]}
+
+orch = Orchestrator(bus, Principal("orchestrator", frozenset()), "work")
+task_id = orch.dispatch("resizer", "resize", args={"width": "1024"})
+worker.run_once()                       # the worker (its own process, in practice) answers
+print(orch.gather([task_id])[task_id])  # Result(ok=True, fields={"status": "done", ...})
+```
+
+Because it rides `A2ABus`, dispatch and results are gated by the channel's scopes (the harness does not bypass the auth core), durable (a worker that dies mid-task sees it on reconnect), and audited through the same sink. Delivery is at-least-once, so `gather` de-duplicates by task id and handlers should be idempotent; a handler that raises produces a failed result carrying only the exception type, never its message. Addressing is by convention on a shared channel; for hard isolation, give each worker its own channel with its own read scope. A runnable end-to-end demo is [`examples/orchestrator.py`](examples/orchestrator.py).
 
 ## Assembling it by hand
 

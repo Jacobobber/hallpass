@@ -35,6 +35,7 @@ from .oauth import (
     SqlitePendingStore,
     TokenHttp,
 )
+from .orchestrator import Handler, Orchestrator, Result, Task, Worker
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
 from .rest import (
@@ -53,7 +54,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "A2ABus",
@@ -71,6 +72,7 @@ __all__ = [
     "Finding",
     "FixedWindowRateLimiter",
     "Hallpass",
+    "Handler",
     "HttpClient",
     "HttpJwks",
     "HttpxClient",
@@ -85,8 +87,10 @@ __all__ = [
     "OAuthConnect",
     "OAuthError",
     "OAuthProvider",
+    "Orchestrator",
     "PendingStore",
     "Principal",
+    "Result",
     "RateLimited",
     "RateLimiter",
     "RestConnector",
@@ -96,6 +100,7 @@ __all__ = [
     "SqliteAuditLog",
     "SqlitePendingStore",
     "StaticJwks",
+    "Task",
     "TokenHttp",
     "TokenRefresher",
     "TokenVerifier",
@@ -109,6 +114,7 @@ __all__ = [
     "UnknownTool",
     "UserContext",
     "VaultError",
+    "Worker",
     "VerificationError",
     "build",
     "catalog",
