@@ -1063,6 +1063,51 @@ SERVICES: dict[str, RestService] = {
             ),
         ),
     ),
+    "datadog": RestService(
+        service="datadog",
+        base_url="https://api.datadoghq.com",
+        # Two keys in two headers -- the multi-credential form. Store the
+        # credential as JSON: {"api_key": "...", "app_key": "..."}.
+        auth=(
+            "multi",
+            (
+                ("header", "DD-API-KEY", "api_key"),
+                ("header", "DD-APPLICATION-KEY", "app_key"),
+            ),
+        ),
+        endpoints=(
+            _ep(
+                "datadog_list_monitors",
+                "GET",
+                "/api/v1/monitor",
+                "List monitors.",
+                scopes=["datadog:read"],
+            ),
+            _ep(
+                "datadog_get_monitor",
+                "GET",
+                "/api/v1/monitor/{monitor_id}",
+                "Get a monitor by id.",
+                scopes=["datadog:read"],
+            ),
+            _ep(
+                "datadog_list_dashboards",
+                "GET",
+                "/api/v1/dashboard",
+                "List dashboards.",
+                scopes=["datadog:read"],
+            ),
+            _ep(
+                "datadog_list_events",
+                "GET",
+                "/api/v1/events",
+                "Query the event stream.",
+                scopes=["datadog:read"],
+                query=("start", "end"),
+                required=("start", "end"),
+            ),
+        ),
+    ),
     "pagerduty": RestService(
         service="pagerduty",
         base_url="https://api.pagerduty.com",

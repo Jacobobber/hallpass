@@ -20,6 +20,7 @@ connector makes a stale token self-heal (a 401/403 renews and retries once).
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections.abc import Callable
@@ -214,6 +215,11 @@ class RetryingHttpClient:
 #   ("template", tmpl)   -> Authorization: tmpl.format(cred=<cred>), for services
 #                           with a non-standard scheme (PagerDuty's
 #                           "Token token={cred}", GoodData's "GoodData {cred}")
+#   ("multi", ((placement, name, field), ...))
+#                        -> several credentials at once. The stored credential
+#                           is a JSON object; each triple puts bundle[field] in
+#                           header/query `name` (Datadog's DD-API-KEY +
+#                           DD-APPLICATION-KEY).
 
 
 @dataclass(frozen=True)
@@ -247,12 +253,18 @@ class Endpoint:
         return schema
 
 
+# An auth style: a fixed scheme ("bearer"/"token"/"bot"/"basic"), a single-slot
+# tuple (("header"|"query"|"template", value)), or the multi-credential form
+# ("multi", ((placement, name, field), ...)) for services needing several keys.
+Auth = str | tuple[str, str] | tuple[str, tuple[tuple[str, str, str], ...]]
+
+
 @dataclass(frozen=True)
 class RestService:
     service: str
     base_url: str
     endpoints: tuple[Endpoint, ...]
-    auth: str | tuple[str, str] = "bearer"
+    auth: Auth = "bearer"
     headers: dict[str, str] = field(default_factory=dict)
     # True for services with a per-tenant host (Jira, Zendesk, Salesforce);
     # the base URL must be supplied at load time via base_url=.
@@ -272,6 +284,35 @@ def _annotations_for_method(method: str) -> ToolAnnotations:
     return ToolAnnotations()
 
 
+def _apply_multi(
+    credential: str, spec: tuple[tuple[str, str, str], ...]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Place several named credentials for a multi-credential service. The
+    stored credential is a JSON object; each (placement, name, field) triple
+    puts ``bundle[field]`` in header or query parameter ``name``."""
+    try:
+        bundle = json.loads(credential)
+    except ValueError:
+        raise ConnectorError(
+            "multi-credential must be a JSON object of named credentials"
+        ) from None
+    if not isinstance(bundle, dict):
+        raise ConnectorError("multi-credential must be a JSON object")
+    headers: dict[str, str] = {}
+    params: dict[str, str] = {}
+    for placement, name, key in spec:
+        if key not in bundle:
+            raise ConnectorError(f"multi-credential is missing field {key!r}")
+        value = str(bundle[key])
+        if placement == "header":
+            headers[name] = value
+        elif placement == "query":
+            params[name] = value
+        else:
+            raise ConnectorError(f"unknown multi placement: {placement!r}")
+    return headers, params
+
+
 def _apply_auth(
     service: RestService, credential: str
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -279,13 +320,16 @@ def _apply_auth(
     in the service's auth style."""
     auth = service.auth
     if isinstance(auth, tuple):
-        kind, name = auth
-        if kind == "header":
-            return {name: credential}, {}
-        if kind == "query":
-            return {}, {name: credential}
-        if kind == "template":
-            return {"Authorization": name.format(cred=credential)}, {}
+        kind, payload = auth[0], auth[1]
+        if kind == "multi" and not isinstance(payload, str):
+            return _apply_multi(credential, payload)
+        if isinstance(payload, str):
+            if kind == "header":
+                return {payload: credential}, {}
+            if kind == "query":
+                return {}, {payload: credential}
+            if kind == "template":
+                return {"Authorization": payload.format(cred=credential)}, {}
         raise ConnectorError(f"unknown auth tuple kind: {kind!r}")
     if auth == "bearer":
         return {"Authorization": f"Bearer {credential}"}, {}
