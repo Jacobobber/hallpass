@@ -35,11 +35,23 @@ class VerificationError(Exception):
 @dataclass(frozen=True)
 class Principal:
     """An authenticated caller: a stable subject and the scopes the
-    identity provider says were granted. Nothing else is trusted."""
+    identity provider says were granted. Nothing else is trusted.
+
+    ``kind`` distinguishes a user-delegated token from a service (machine-to-
+    machine, client-credentials) one, when the verifier is configured to tell
+    them apart; it defaults to ``"user"``. It is descriptive, not a permission
+    — access is still decided by scopes. Branch on ``is_service`` if a tool
+    should behave differently for an agent acting as itself.
+    """
 
     subject: str
     scopes: frozenset[str]
     claims: dict[str, Any] = field(repr=False, default_factory=dict)
+    kind: str = "user"
+
+    @property
+    def is_service(self) -> bool:
+        return self.kind == "service"
 
 
 class JwksSource(Protocol):
@@ -94,10 +106,23 @@ class TokenVerifier:
 
     _ALLOWED_ALGORITHMS = ["RS256"]  # asymmetric only; HS* and none are refused
 
-    def __init__(self, *, issuer: str, audience: str, jwks: JwksSource) -> None:
+    def __init__(
+        self,
+        *,
+        issuer: str,
+        audience: str,
+        jwks: JwksSource,
+        service_claim: str | None = None,
+        service_values: frozenset[str] = frozenset(),
+    ) -> None:
         self._issuer = issuer
         self._audience = audience
         self._jwks = jwks
+        # When set, a token whose ``service_claim`` value is in ``service_values``
+        # verifies as a service principal (e.g. Auth0's gty=client-credentials,
+        # Azure's idtyp=app). Left unset, every principal is a user.
+        self._service_claim = service_claim
+        self._service_values = service_values
 
     def verify(self, token: str) -> Principal:
         if not token:
@@ -133,10 +158,18 @@ class TokenVerifier:
         if not claims["sub"]:
             raise VerificationError("token subject is empty")
 
+        kind = "user"
+        if (
+            self._service_claim is not None
+            and str(claims.get(self._service_claim)) in self._service_values
+        ):
+            kind = "service"
+
         return Principal(
             subject=claims["sub"],
             scopes=frozenset(_extract_scopes(claims)),
             claims=claims,
+            kind=kind,
         )
 
     def _key_for(self, kid: str | None) -> Any:
