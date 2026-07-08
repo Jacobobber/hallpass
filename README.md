@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.19).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.20).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -248,7 +248,7 @@ async def token_provider() -> str:
 server = build_mcp_server(app, token_provider)  # hand to any MCP transport
 ```
 
-Every list and call the server answers is gated by the core against that token. An unauthenticated caller gets an empty catalog and a refused call; an ungranted tool is indistinguishable from one that does not exist. A `ToolSpec` may carry an `input_schema` (JSON Schema), which the adapter advertises so clients validate arguments; tools that omit it advertise an open object. See `tests/test_mcp_adapter.py`.
+Every list and call the server answers is gated by the core against that token. An unauthenticated caller gets an empty catalog and a refused call; an ungranted tool is indistinguishable from one that does not exist. A `ToolSpec` may carry an `input_schema` (JSON Schema), which the adapter advertises so clients validate arguments; tools that omit it advertise an open object. It also carries `ToolAnnotations` (read-only / destructive / idempotent hints, auto-derived from the HTTP verb for catalog connectors — GET is read-only, DELETE destructive, PUT idempotent), which the adapter maps to MCP's tool-annotation hints and the HTTP server includes in `/tools`, so a client can warn before a destructive call. The hints are advisory; access is still decided by scopes. See `tests/test_mcp_adapter.py` and `tests/test_annotations.py`.
 
 ## Install
 

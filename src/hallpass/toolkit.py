@@ -23,7 +23,7 @@ import inspect
 from collections.abc import Callable, Iterable
 from typing import Any, TypeVar
 
-from .gating import ToolSpec
+from .gating import ToolAnnotations, ToolSpec
 
 __all__ = ["ToolKit"]
 
@@ -81,9 +81,11 @@ class ToolKit:
         scopes: Iterable[str] = (),
         name: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Callable[[F], F]:
         """Register the decorated function as a tool. Returns the function
-        unchanged, so it stays directly callable and testable."""
+        unchanged, so it stays directly callable and testable. Pass
+        ``annotations`` to hint read-only/destructive/idempotent to clients."""
 
         def decorator(fn: F) -> F:
             tool_name = name or fn.__name__
@@ -98,6 +100,7 @@ class ToolKit:
                     handler=fn,
                     connector=self.service,
                     input_schema=_schema_from_signature(fn),
+                    annotations=annotations or ToolAnnotations(),
                 )
             )
             return fn

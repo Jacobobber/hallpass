@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .connectors import UserContext
-from .gating import ToolSpec
+from .gating import ToolAnnotations, ToolSpec
 from .guard import guard_response
 
 __all__ = [
@@ -255,6 +255,19 @@ class RestService:
     requires_base_url: bool = False
 
 
+def _annotations_for_method(method: str) -> ToolAnnotations:
+    """Derive advisory hints from the HTTP verb: reads are read-only, DELETE is
+    destructive, PUT is idempotent; POST/PATCH are plain writes."""
+    verb = method.upper()
+    if verb in ("GET", "HEAD"):
+        return ToolAnnotations(read_only=True)
+    if verb == "DELETE":
+        return ToolAnnotations(destructive=True)
+    if verb == "PUT":
+        return ToolAnnotations(idempotent=True)
+    return ToolAnnotations()
+
+
 def _apply_auth(
     service: RestService, credential: str
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -397,6 +410,7 @@ class RestConnector:
                 ),
                 connector=self._spec.service,
                 input_schema=endpoint.input_schema(),
+                annotations=_annotations_for_method(endpoint.method),
             )
             for endpoint in self._spec.endpoints
         ]

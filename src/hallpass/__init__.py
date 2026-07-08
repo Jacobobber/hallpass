@@ -14,7 +14,7 @@ from .connectors import Connector, UserContext
 from .consent import Consent, ConsentLedger, InMemoryConsentLedger
 from .core import Hallpass
 from .diagnostics import Finding, doctor, format_report
-from .gating import ToolDenied, ToolGate, ToolSpec, UnknownTool
+from .gating import ToolAnnotations, ToolDenied, ToolGate, ToolSpec, UnknownTool
 from .guard import TRUNCATED_KEY, guard_response
 from .identity import (
     HttpJwks,
@@ -53,7 +53,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 
 __all__ = [
     "A2ABus",
@@ -98,6 +98,7 @@ __all__ = [
     "TokenHttp",
     "TokenRefresher",
     "TokenVerifier",
+    "ToolAnnotations",
     "ToolDenied",
     "ToolGate",
     "ToolKit",

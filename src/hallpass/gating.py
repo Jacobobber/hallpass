@@ -17,7 +17,26 @@ from typing import Any, Callable
 
 from .identity import Principal
 
-__all__ = ["ToolSpec", "ToolGate", "ToolDenied", "UnknownTool"]
+__all__ = ["ToolSpec", "ToolAnnotations", "ToolGate", "ToolDenied", "UnknownTool"]
+
+
+@dataclass(frozen=True)
+class ToolAnnotations:
+    """Behavioural hints about a tool, mirroring MCP's tool annotations. They
+    are advisory metadata a client uses to decide how to present or guard a
+    call (e.g. warn before a destructive one); hallpass carries them through
+    from the catalog and advertises them, but access is still decided by
+    scopes, not by these hints.
+
+    - ``read_only``: the tool does not modify its environment (a GET).
+    - ``destructive``: the tool may make irreversible changes (a DELETE).
+    - ``idempotent``: repeating the call with the same args has no additional
+      effect (a PUT).
+    """
+
+    read_only: bool = False
+    destructive: bool = False
+    idempotent: bool = False
 
 
 class UnknownTool(Exception):
@@ -53,6 +72,9 @@ class ToolSpec:
     # advertises it so clients validate calls; when None it advertises an
     # open object (any arguments accepted).
     input_schema: dict[str, Any] | None = None
+    # Advisory behaviour hints (read-only / destructive / idempotent),
+    # advertised to clients. Never a substitute for scope gating.
+    annotations: ToolAnnotations = field(default_factory=ToolAnnotations)
 
 
 class ToolGate:
