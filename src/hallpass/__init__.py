@@ -22,6 +22,7 @@ from .connectors import Connector, UserContext
 from .consent import Consent, ConsentLedger, InMemoryConsentLedger
 from .core import Hallpass
 from .diagnostics import Finding, doctor, format_report
+from .dm import DirectChannel, direct_channel, open_dm
 from .gating import ToolAnnotations, ToolDenied, ToolGate, ToolSpec, UnknownTool
 from .guard import TRUNCATED_KEY, guard_response
 from .identity import (
@@ -66,7 +67,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 __all__ = [
     "A2ABus",
@@ -86,6 +87,7 @@ __all__ = [
     "Consent",
     "ConsentLedger",
     "CredentialVault",
+    "DirectChannel",
     "Endpoint",
     "Finding",
     "FixedWindowRateLimiter",
@@ -143,11 +145,13 @@ __all__ = [
     "build",
     "catalog",
     "dev_app",
+    "direct_channel",
     "doctor",
     "flex",
     "format_report",
     "frame_untrusted",
     "guard_response",
+    "open_dm",
     "sanitize",
     "tokenize",
 ]
