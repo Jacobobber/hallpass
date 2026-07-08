@@ -227,6 +227,10 @@ class Endpoint:
     body: tuple[str, ...] = ()  # tool args passed in the request body
     required: frozenset[str] = frozenset()  # required args beyond path params
     form: bool = False  # send body as form-urlencoded instead of JSON
+    # A fixed GraphQL document. When set, the tool POSTs {"query": <this>,
+    # "variables": {<body args>}} -- a named operation whose args are the
+    # variables, so a caller never hand-writes GraphQL.
+    graphql: str | None = None
 
     def path_params(self) -> list[str]:
         return _PATH_PARAM.findall(self.path)
@@ -312,7 +316,15 @@ def _make_handler(
             raise ConnectorError(f"missing path argument {exc}") from None
         url = base_url.rstrip("/") + path
         query = {k: args[k] for k in endpoint.query if k in args}
-        body = {k: args[k] for k in endpoint.body if k in args} or None
+        if endpoint.graphql is not None:
+            # A named GraphQL operation: fixed document, body args are variables.
+            variables = {k: args[k] for k in endpoint.body if k in args}
+            body: dict[str, Any] | None = {
+                "query": endpoint.graphql,
+                "variables": variables,
+            }
+        else:
+            body = {k: args[k] for k in endpoint.body if k in args} or None
 
         def call(credential: str) -> Any:
             auth_headers, auth_params = _apply_auth(service, credential)
