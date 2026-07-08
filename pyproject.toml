@@ -35,7 +35,7 @@ connectors = ["httpx>=0.27"]
 Repository = "https://github.com/Jacobobber/hallpass"
 
 [dependency-groups]
-dev = ["pytest>=8", "mcp>=1.9", "httpx>=0.27"]
+dev = ["pytest>=8", "mcp>=1.9", "httpx>=0.27", "hypothesis>=6"]
 
 [build-system]
 requires = ["hatchling"]

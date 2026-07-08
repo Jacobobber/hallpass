@@ -218,6 +218,8 @@ Python 3.10+. One runtime dependency for the core (`pyjwt[crypto]`); the MCP ada
 
 Every test names a way multi-user tool servers get broken and proves this design refuses it: wrong-audience tokens (the confused deputy), `alg=none` and HS256 downgrade, signatures from the wrong key, unknown-kid fail-closed with single-refresh rotation, secrets in the database file, cross-user and cross-service vault isolation, wrong-key decryption, call-time gating bypass, partial-scope unlock, and cross-layer leaks (user B's call can never surface user A's credential).
 
+Beyond the named cases, `tests/test_properties.py` puts the four core invariants under a property-based fuzzer (Hypothesis): across generated scope sets, subjects, and queries, gating holds iff the caller has the scope, no subject can read another's vaulted credential, tool search never exceeds the authorized set, and A2A reads require the read scope. A counterexample prints the exact input that broke it.
+
 ```bash
 uv run --group dev pytest -q
 ```
