@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: pre-release (v0.18).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, and a `doctor()` config self-check are in place and green; treat the API as unstable pre-1.0.
+**Status: pre-release (v0.19).** Core, MCP adapter, operational layer (audit, rate limiting, availability), agent-to-agent channels (with FLEX, a token-efficient message language), tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization for agent channels, a response-size guard, idempotency keys for at-most-once retries, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green; treat the API as unstable pre-1.0.
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -15,6 +15,7 @@ The design essay behind this: [Multi-user is the hard part of an MCP server](doc
 ```bash
 git clone https://github.com/Jacobobber/hallpass && cd hallpass
 uv run python examples/quickstart.py     # a gated, per-user tool server, no setup
+uv run hallpass serve --dev              # a live HTTP server + a token + curl to hit it
 uv run --group dev pytest -q             # the full suite
 ```
 
@@ -211,6 +212,28 @@ result = app.call_tool(bearer_token, "read_note", {})
 ```
 
 A connector is a class with a `service` name and a `tools()` method returning `ToolSpec`s; handlers get a `UserContext` with the caller's identity and that user's credential for the connector's service. For a complete, self-contained program you can run right now (`python examples/minimal.py`, core install only) that mints its own token and shows per-user gating end to end, see [`examples/minimal.py`](examples/minimal.py); [`tests/test_end_to_end.py`](tests/test_end_to_end.py) is the same idea as a test.
+
+## Run it as a server (CLI)
+
+Installing hallpass puts a `hallpass` command on your path. It's a thin shell over the library, so it can't drift from it:
+
+```bash
+hallpass serve --dev            # a live multi-user server on localhost + a ready demo token + curl
+hallpass doctor --dev           # config self-check (exits non-zero on an error)
+hallpass catalog list           # every connector and its tool count
+hallpass catalog search "list my github repos"   # rank catalog tools by a query
+```
+
+`hallpass serve --dev` stands up a real HTTP server (stdlib only, no framework) with the full connector catalog and prints a self-signed token plus the curl to hit it:
+
+```bash
+curl http://127.0.0.1:8000/healthz
+curl -H "Authorization: Bearer $TOK" http://127.0.0.1:8000/tools          # the caller's gated catalog
+curl -H "Authorization: Bearer $TOK" -d '{"arguments":{}}' \
+     http://127.0.0.1:8000/call/github_list_my_repos                      # a gated call
+```
+
+The endpoints route straight through the core: `/tools` returns the catalog *for that bearer*, `/call/<tool>` verifies and gates before running, an invalid token is `401`, and an ungranted tool is the same `404` as a nonexistent one — no leak of what exists. For production, `hallpass serve` reads `HALLPASS_ISSUER` / `HALLPASS_AUDIENCE` / `HALLPASS_JWKS_URL` (+ `HALLPASS_VAULT_KEY`) from the environment. The server is `hallpass.http_server` (a pure `handle_request` + a stdlib `http.server` wrapper); it's a reference/dev transport — put TLS and rate limiting at a proxy, or use the MCP adapter below.
 
 ## Serving it over MCP
 

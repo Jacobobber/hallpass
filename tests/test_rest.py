@@ -235,3 +235,53 @@ def test_unknown_catalog_name_raises():
 
     with pytest.raises(KeyError):
         catalog.load("does-not-exist")
+
+
+class _FakeResponse:
+    """Stands in for an httpx.Response so HttpxClient's body handling is
+    exercised without networking."""
+
+    def __init__(self, *, content_type, payload, text):
+        self.status_code = 200
+        self.headers = {"content-type": content_type}
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+def test_httpx_client_parses_json_content_type(monkeypatch):
+    """A connector responding with content-type application/json must yield a
+    parsed dict, not the raw response text. Guards the content-type check in
+    HttpxClient: a stray backslash (application\\json) never matches a real
+    header, so JSON would silently fall through to response.text (a string)."""
+    from hallpass.rest import HttpxClient
+
+    monkeypatch.setattr(
+        "httpx.request",
+        lambda *a, **k: _FakeResponse(
+            content_type="application/json; charset=utf-8",
+            payload={"parsed": True},
+            text='{"parsed": true}',  # the unparsed fallback we must NOT get
+        ),
+    )
+    out = HttpxClient().request("GET", "https://x", headers={}, params={}, json=None)
+    assert out == {"parsed": True}
+    assert not isinstance(out, str)
+
+
+def test_httpx_client_returns_text_for_non_json(monkeypatch):
+    """The other branch: a non-JSON content-type falls back to raw text."""
+    from hallpass.rest import HttpxClient
+
+    monkeypatch.setattr(
+        "httpx.request",
+        lambda *a, **k: _FakeResponse(
+            content_type="text/plain",
+            payload={"unexpected": "parse"},
+            text="hello",
+        ),
+    )
+    out = HttpxClient().request("GET", "https://x", headers={}, params={}, json=None)
+    assert out == "hello"
