@@ -48,6 +48,7 @@ def _ep(
     body: tuple[str, ...] = (),
     required: Iterable[str] = (),
     form: bool = False,
+    graphql: str | None = None,
 ) -> Endpoint:
     return Endpoint(
         name=name,
@@ -59,6 +60,7 @@ def _ep(
         body=body,
         required=frozenset(required),
         form=form,
+        graphql=graphql,
     )
 
 
@@ -411,15 +413,41 @@ SERVICES: dict[str, RestService] = {
         base_url="https://api.linear.app",
         auth="bearer",
         endpoints=(
-            # Linear is GraphQL: a single POST /graphql with a query body.
+            # Linear is GraphQL-only. These are named operations: the caller
+            # invokes a tool, not a hand-written query (see Endpoint.graphql).
             _ep(
-                "linear_graphql",
+                "linear_viewer",
                 "POST",
                 "/graphql",
-                "Run a Linear GraphQL query.",
+                "The authenticated Linear user.",
                 scopes=["linear:read"],
-                body=("query", "variables"),
-                required=("query",),
+                graphql="query { viewer { id name email } }",
+            ),
+            _ep(
+                "linear_my_issues",
+                "POST",
+                "/graphql",
+                "Recent issues.",
+                scopes=["linear:read"],
+                graphql="query { issues(first: 25) { nodes { id title } } }",
+            ),
+            _ep(
+                "linear_teams",
+                "POST",
+                "/graphql",
+                "Teams in the workspace.",
+                scopes=["linear:read"],
+                graphql="query { teams { nodes { id name } } }",
+            ),
+            _ep(
+                "linear_issue",
+                "POST",
+                "/graphql",
+                "One issue by id (variable).",
+                scopes=["linear:read"],
+                body=("id",),
+                required=("id",),
+                graphql="query ($id: String!) { issue(id: $id) { id title description } }",
             ),
         ),
     ),
