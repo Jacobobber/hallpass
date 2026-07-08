@@ -9,6 +9,14 @@ adapter.
 
 from . import catalog, flex
 from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
+from .agents import (
+    AgentContext,
+    AgentHandle,
+    AgentSpec,
+    Spawner,
+    SubprocessSpawner,
+    Team,
+)
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog, SqliteAuditLog
 from .connectors import Connector, UserContext
 from .consent import Consent, ConsentLedger, InMemoryConsentLedger
@@ -54,11 +62,14 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "A2ABus",
     "A2AMessage",
+    "AgentContext",
+    "AgentHandle",
+    "AgentSpec",
     "AuditEvent",
     "AuditSink",
     "ChannelDenied",
@@ -99,8 +110,11 @@ __all__ = [
     "RetryingHttpClient",
     "SqliteAuditLog",
     "SqlitePendingStore",
+    "Spawner",
     "StaticJwks",
+    "SubprocessSpawner",
     "Task",
+    "Team",
     "TokenHttp",
     "TokenRefresher",
     "TokenVerifier",
