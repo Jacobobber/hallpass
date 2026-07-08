@@ -44,6 +44,7 @@ from .oauth import (
     TokenHttp,
 )
 from .orchestrator import Handler, Orchestrator, Result, Task, Worker
+from .taskqueue import LeasedTask, TaskQueue
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
 from .rest import (
@@ -65,7 +66,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 __all__ = [
     "A2ABus",
@@ -100,6 +101,7 @@ __all__ = [
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
     "JwksSource",
+    "LeasedTask",
     "LexicalRanker",
     "OAuthConnect",
     "OAuthError",
@@ -120,6 +122,7 @@ __all__ = [
     "StaticJwks",
     "SubprocessSpawner",
     "Task",
+    "TaskQueue",
     "Team",
     "TokenHttp",
     "TokenRefresher",
