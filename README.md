@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.2 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.3 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -305,6 +305,19 @@ pip install "hallpass[mcp] @ git+https://github.com/Jacobobber/hallpass"  # + MC
 ```
 
 Python 3.10+. One runtime dependency for the core (`pyjwt[crypto]`); the MCP adapter and the HTTP JWKS fetcher are optional extras. CI covers 3.10 through 3.14 (all five) on Linux and Windows, with ruff and `mypy --strict`.
+
+## Performance
+
+hallpass stays out of the way on the hot path. Token verification caches a verified principal until the token's own expiry, so a repeated bearer skips the RSA signature check (a token verifies identically until it expires, and JWT verification consults no revocation list, so the cache changes nothing observable). The default HTTP client pools connections, so repeated calls to a service reuse a kept-alive TLS connection instead of a fresh handshake each time. Measured with `python evals/benchmark.py`:
+
+| operation | ops/sec |
+|---|---|
+| token verify, cached | ~3,500,000 |
+| token verify, uncached (RSA) | ~22,000 |
+| call-time gating | ~4,700,000 |
+| FLEX encode / parse | ~630,000 / ~285,000 |
+
+A repeated token is roughly 160x cheaper than a cold RSA verify, and the pooled HTTP client is ~5x an unpooled one even on loopback (the gap widens over real TLS, where the handshake dominates). Numbers are ops/sec on the author's machine, for relative comparison. Async/uvloop is a deliberate non-goal for now: the core is synchronous, and the per-call CPU cost is already small enough that connection reuse and the verify cache are where the real time was.
 
 ## The security suite
 

@@ -114,6 +114,7 @@ class TokenVerifier:
         jwks: JwksSource,
         service_claim: str | None = None,
         service_values: frozenset[str] = frozenset(),
+        cache_size: int = 2048,
     ) -> None:
         self._issuer = issuer
         self._audience = audience
@@ -123,10 +124,22 @@ class TokenVerifier:
         # Azure's idtyp=app). Left unset, every principal is a user.
         self._service_claim = service_claim
         self._service_values = service_values
+        # Verified-token cache: a token verifies identically until its own exp
+        # (JWT verification checks no revocation list), so caching the Principal
+        # keyed by the raw token until exp skips the RSA signature check on the
+        # hot path. Bounded; set cache_size=0 to disable.
+        self._cache_size = cache_size
+        self._cache: dict[str, tuple[Principal, float]] = {}
+        self._cache_lock = threading.Lock()
 
     def verify(self, token: str) -> Principal:
         if not token:
             raise VerificationError("no bearer token presented")
+        if self._cache_size:
+            with self._cache_lock:
+                cached = self._cache.get(token)
+                if cached is not None and time.time() < cached[1]:
+                    return cached[0]
         try:
             header = jwt.get_unverified_header(token)
         except jwt.InvalidTokenError as exc:
@@ -165,12 +178,18 @@ class TokenVerifier:
         ):
             kind = "service"
 
-        return Principal(
+        principal = Principal(
             subject=claims["sub"],
             scopes=frozenset(_extract_scopes(claims)),
             claims=claims,
             kind=kind,
         )
+        if self._cache_size:
+            with self._cache_lock:
+                if len(self._cache) >= self._cache_size:
+                    self._cache.pop(next(iter(self._cache)))  # bounded: drop oldest
+                self._cache[token] = (principal, float(claims["exp"]))
+        return principal
 
     def _key_for(self, kid: str | None) -> Any:
         if kid is None:

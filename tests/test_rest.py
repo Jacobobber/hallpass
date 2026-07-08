@@ -251,6 +251,19 @@ class _FakeResponse:
         return self._payload
 
 
+class _FakeClient:
+    """Stands in for the pooled httpx.Client; returns a canned response."""
+
+    def __init__(self, response):
+        self._response = response
+
+    def request(self, *a, **k):
+        return self._response
+
+    def close(self):
+        pass
+
+
 def test_httpx_client_parses_json_content_type(monkeypatch):
     """A connector responding with content-type application/json must yield a
     parsed dict, not the raw response text. Guards the content-type check in
@@ -258,14 +271,12 @@ def test_httpx_client_parses_json_content_type(monkeypatch):
     header, so JSON would silently fall through to response.text (a string)."""
     from hallpass.rest import HttpxClient
 
-    monkeypatch.setattr(
-        "httpx.request",
-        lambda *a, **k: _FakeResponse(
-            content_type="application/json; charset=utf-8",
-            payload={"parsed": True},
-            text='{"parsed": true}',  # the unparsed fallback we must NOT get
-        ),
+    resp = _FakeResponse(
+        content_type="application/json; charset=utf-8",
+        payload={"parsed": True},
+        text='{"parsed": true}',  # the unparsed fallback we must NOT get
     )
+    monkeypatch.setattr("httpx.Client", lambda **k: _FakeClient(resp))
     out = HttpxClient().request("GET", "https://x", headers={}, params={}, json=None)
     assert out == {"parsed": True}
     assert not isinstance(out, str)
@@ -275,13 +286,9 @@ def test_httpx_client_returns_text_for_non_json(monkeypatch):
     """The other branch: a non-JSON content-type falls back to raw text."""
     from hallpass.rest import HttpxClient
 
-    monkeypatch.setattr(
-        "httpx.request",
-        lambda *a, **k: _FakeResponse(
-            content_type="text/plain",
-            payload={"unexpected": "parse"},
-            text="hello",
-        ),
+    resp = _FakeResponse(
+        content_type="text/plain", payload={"unexpected": "parse"}, text="hello"
     )
+    monkeypatch.setattr("httpx.Client", lambda **k: _FakeClient(resp))
     out = HttpxClient().request("GET", "https://x", headers={}, params={}, json=None)
     assert out == "hello"
