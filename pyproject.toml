@@ -1,6 +1,6 @@
 [project]
 name = "hallpass"
-version = "0.24.0"
+version = "1.0.0"
 description = "Multi-user auth core for MCP servers: per-user OAuth, encrypted credential vault, scope-gated tools."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,7 +9,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Jacob Malm" }]
 keywords = ["mcp", "oauth", "multi-user", "authorization", "agents"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",

@@ -1,0 +1,42 @@
+# Changelog
+
+All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
+
+## [1.0.0]
+
+First stable release. The public API is now committed to under semver.
+
+hallpass is the multi-user auth core that public MCP servers are missing: it answers who a request is from, where each user's downstream credentials live, and which tools *this* user gets — enforced at call time, not just in the catalog. What that means, as of 1.0:
+
+### Identity, credentials, gating (the core)
+- **`TokenVerifier`** — OAuth 2.1 resource-server verification: RS256 against a JWKS, exact issuer/audience, `alg=none` and symmetric algorithms refused, single JWKS refresh on unknown kid then fail closed. Injected JWKS source (HTTPS in production, static in tests).
+- **User vs service principals** — `Principal.kind` / `is_service`, derived from a configurable token claim (Auth0 `gty`, Azure `idtyp`); descriptive, never a permission.
+- **`CredentialVault`** — per-`(subject, service)` Fernet-encrypted storage; no secret in a repr, log, or error; operator-supplied key.
+- **`ToolGate`** — scope-derived gating enforced at call time; an ungranted tool is indistinguishable from a nonexistent one.
+
+### Connecting users (OAuth)
+- **`OAuthConnect`** — the authorization-code connect flow (single-use state, PKCE), token exchange and refresh, tokens stored where the connector reads them; 22 catalog services carry prewired provider endpoints.
+- **Self-healing** — `attach_refresh` renews a stale token and retries once on 401/403; `valid_token` refreshes proactively.
+- **Consent & revoke** — a `ConsentLedger` records grants; `disconnect` clears the token, the refresh bundle, and the record.
+- **`SqlitePendingStore`** — shared OAuth state for multi-instance deployments.
+
+### Prewired connector catalog
+- **47 services / 115 tools** as declarative `RestService`s (no per-vendor SDKs). Auth styles: bearer/token/bot/basic, header/query, templated, and multi-credential (JSON bundle → several headers). Form-encoded bodies (Stripe writes) and first-class GraphQL operations (Linear) are supported. Per-tenant services take a base URL.
+- **Reliability** — transient-error retry with backoff honoring `Retry-After`, and an opt-in response-size guard.
+- **MCP tool annotations** — read-only / destructive / idempotent hints, auto-derived from the HTTP verb.
+
+### Agent-to-agent
+- **`A2ABus`** — authenticated, authorized, durable channels (append-only log, forward-only ack, catch-up on reconnect).
+- **Untrusted-message sanitization** — escape/control/bidi/zero-width stripping and an injection-resistant framing helper.
+- **FLEX** — a token-efficient message language (~44% smaller than JSON for a representative message).
+
+### Operations
+- **Audit** — every allow and deny recorded (never a credential); `SqliteAuditLog` is durable and queryable, and `duration_ms` makes the trail a latency source (no separate observability dependency).
+- **Rate limiting**, **connector availability**, **idempotency keys** (at-most-once retries), and **`doctor()`** (config self-check).
+
+### Transports & tooling
+- **MCP adapter** (thin, over the official SDK) and a **dependency-free HTTP reference server** (`hallpass serve`), plus a **`hallpass` CLI** (`serve` / `doctor` / `catalog`).
+- **Tool search** — gate-enforced, benchmarked against a keyword baseline.
+
+### Quality
+- Property-based auth-isolation evals (Hypothesis), a tool-search benchmark, mypy `--strict`, ruff, and a Linux+Windows × Python 3.10–3.14 CI matrix. Every security property is enforced by the core and covered by a test that names the failure it prevents.
