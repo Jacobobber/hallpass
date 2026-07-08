@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.1.0]
+
+- **Orchestrator harness** (`hallpass.orchestrator`) — an agent that drives worker agents, composed from the existing primitives. `Orchestrator.dispatch(worker, do, args=...)` posts a FLEX `task` addressed to a worker and tagged with an id; `Worker` runs a registered handler for the task's operation and posts a `result` tagged with the same id; `Orchestrator.gather(ids)` matches results back. It rides `A2ABus`, so it is scope-gated (the harness does not bypass the auth core), durable (a worker can die mid-task and see it on reconnect), and audited. At-least-once delivery with `gather` de-duplicating by id; a failed handler reports only the exception type. Runnable demo: `examples/orchestrator.py`. Additive; no breaking changes.
+
 ## [1.0.0]
 
 First stable release. The public API is now committed to under semver.
