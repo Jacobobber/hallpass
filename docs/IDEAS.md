@@ -17,7 +17,7 @@ only when it is built and tested.
 
 ## OAuth follow-ups (surfaced while building it)
 
-- **Shared pending store**: `InMemoryPendingStore` is single-process; behind a load balancer start and finish can hit different instances, so ship a store the operator backs with Redis or a table (the protocol is already there).
+- ~~**Shared pending store**: `InMemoryPendingStore` is single-process; behind a load balancer start and finish can hit different instances.~~ **Done** — `SqlitePendingStore` (file-backed, single-use with atomic pop, TTL) lets `start` and `finish` land on different instances. Mirrors the vault/A2A SQLite patterns. A Redis-backed store is still a valid drop-in via the same `PendingStore` protocol.
 - **Provider quirks**: some token endpoints nest or rename fields (Slack nests the token); a per-provider response adapter would absorb the odd ones. The registry covers URLs and scopes today.
 - **State bound to the browser session**: binding state to the operator's session cookie would harden against cross-user state replay.
 
