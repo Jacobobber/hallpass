@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -93,10 +94,42 @@ class HttpClient(Protocol):
 
 class HttpxClient:
     """Default HttpClient over httpx (the ``connectors`` extra). Import is
-    deferred so the core has no httpx dependency."""
+    deferred so the core has no httpx dependency.
 
-    def __init__(self, *, timeout: float = 30.0) -> None:
+    Holds one pooled ``httpx.Client`` and reuses it across calls, so repeated
+    requests to the same service reuse a kept-alive connection instead of
+    paying a fresh TCP + TLS handshake every time (the dominant cost for a
+    connector doing many small calls). Set ``http2=True`` to negotiate HTTP/2
+    where the service supports it (needs the ``h2`` package)."""
+
+    def __init__(self, *, timeout: float = 30.0, http2: bool = False) -> None:
         self._timeout = timeout
+        self._http2 = http2
+        self._client: Any = None
+        self._lock = threading.Lock()
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            with self._lock:
+                if self._client is None:
+                    try:
+                        import httpx
+                    except ImportError as exc:  # pragma: no cover - install extras
+                        raise ConnectorError(
+                            "prewired connectors need the 'connectors' extra: "
+                            "pip install 'hallpass[connectors]'"
+                        ) from exc
+                    self._client = httpx.Client(
+                        timeout=self._timeout, http2=self._http2
+                    )
+        return self._client
+
+    def close(self) -> None:
+        """Close the pooled connection. Safe to call more than once."""
+        with self._lock:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
 
     def request(
         self,
@@ -108,21 +141,13 @@ class HttpxClient:
         json: dict[str, Any] | None,
         data: dict[str, Any] | None = None,
     ) -> Any:
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - depends on install extras
-            raise ConnectorError(
-                "prewired connectors need the 'connectors' extra: "
-                "pip install 'hallpass[connectors]'"
-            ) from exc
-        response = httpx.request(
+        response = self._get_client().request(
             method,
             url,
             headers=headers,
             params=params,
             json=json,
             data=data,
-            timeout=self._timeout,
         )
         if response.status_code >= 400:
             raise ConnectorError(
