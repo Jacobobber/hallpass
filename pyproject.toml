@@ -1,6 +1,6 @@
 [project]
 name = "hallpass"
-version = "0.20.0"
+version = "0.21.0"
 description = "Multi-user auth core for MCP servers: per-user OAuth, encrypted credential vault, scope-gated tools."
 readme = "README.md"
 requires-python = ">=3.10"

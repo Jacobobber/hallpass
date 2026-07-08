@@ -11,6 +11,7 @@ protocol mocks.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from .audit import UNVERIFIED, AuditEvent, AuditSink
@@ -108,6 +109,7 @@ class Hallpass:
         *,
         tool: str | None = None,
         reason: str = "",
+        duration_ms: float | None = None,
     ) -> None:
         if self._audit_sink is not None:
             self._audit_sink.record(
@@ -117,6 +119,7 @@ class Hallpass:
                     decision=decision,
                     tool=tool,
                     reason=reason,
+                    duration_ms=duration_ms,
                 )
             )
 
@@ -230,12 +233,16 @@ class Hallpass:
             _vault=self._vault,
             _service=self._services[name],
         )
+        started = time.monotonic()
         result = spec.handler(context, **arguments)
+        duration_ms = (time.monotonic() - started) * 1000.0
         # Remember only on success: a failed call leaves nothing, so a genuine
         # retry can still go through.
         if store is not None and idempotency_key is not None:
             store.put(principal.subject, name, idempotency_key, result)
-        self._record("call_tool", principal.subject, "allow", tool=name)
+        self._record(
+            "call_tool", principal.subject, "allow", tool=name, duration_ms=duration_ms
+        )
         return result
 
     # -- introspection used by adapters ------------------------------------

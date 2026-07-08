@@ -9,7 +9,7 @@ adapter.
 
 from . import catalog, flex
 from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
-from .audit import AuditEvent, AuditSink, InMemoryAuditLog
+from .audit import AuditEvent, AuditSink, InMemoryAuditLog, SqliteAuditLog
 from .connectors import Connector, UserContext
 from .consent import Consent, ConsentLedger, InMemoryConsentLedger
 from .core import Hallpass
@@ -53,7 +53,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 
 __all__ = [
     "A2ABus",
@@ -93,6 +93,7 @@ __all__ = [
     "RestService",
     "RetryPolicy",
     "RetryingHttpClient",
+    "SqliteAuditLog",
     "SqlitePendingStore",
     "StaticJwks",
     "TokenHttp",

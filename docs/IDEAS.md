@@ -7,7 +7,7 @@ only when it is built and tested.
 ## Done
 
 - Identity (OAuth 2.1 resource-server verification), credential vault, scope gating, MCP adapter.
-- Operational layer: audit trail (denials included), per-principal rate limiting, connector availability.
+- Operational layer: audit trail (denials included), per-principal rate limiting, connector availability. `SqliteAuditLog` is a durable, queryable sink (`query` by subject/tool/decision/time); `AuditEvent.duration_ms` records call latency, so the audit trail doubles as an observability source without an OpenTelemetry dependency.
 - Agent-to-agent channels: authenticated, authorized, durable.
 - FLEX (`hallpass.flex`): a token-efficient A2A message language -- `<kind> [@recipient]* [#ref]* [key=value]* [ | note]`, ~44% smaller than compact JSON for a representative message, round-trips, tolerant parse, sanitized on the way in. Rides `A2ABus` unchanged (`encode`/`parse` around the string body).
 - Tool search ("context to search"): gate-enforced, Unicode-aware, pluggable ranker.
