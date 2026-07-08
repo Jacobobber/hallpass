@@ -62,12 +62,13 @@ from .rest import (
     RetryPolicy,
     TokenRefresher,
 )
+from .runner import QueueHandler, run_worker, serve_queue
 from .search import LexicalRanker, ToolRanker, tokenize
 from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 __all__ = [
     "A2ABus",
@@ -111,6 +112,7 @@ __all__ = [
     "Orchestrator",
     "PendingStore",
     "Principal",
+    "QueueHandler",
     "Result",
     "RateLimited",
     "RateLimiter",
@@ -152,6 +154,8 @@ __all__ = [
     "frame_untrusted",
     "guard_response",
     "open_dm",
+    "run_worker",
     "sanitize",
+    "serve_queue",
     "tokenize",
 ]

@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.8 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.9 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -304,6 +304,23 @@ q.outstanding()       # what a resuming orchestrator still needs
 ```
 
 `claim` hands one worker exactly one task under a write-locked transaction, so concurrent workers never grab the same one. If the worker that claimed a task dies without completing it, the lease expires and the task becomes claimable again (at-least-once), and `complete` is idempotent by id so a re-run can't overwrite a recorded result. Because it is on disk, a crashed or restarted orchestrator resumes: the backlog and the results are still there. It is a coordination/durability primitive; the auth boundary stays on the tools a worker calls with its scoped token.
+
+### The reference agent loop
+
+hallpass provisions the identity, scope, channel, and queue, but it runs no model loop of its own (that's [deliberate](#what-this-is-not)). What every served agent still needs is the *loop* around its work — claim/receive, run, report, heartbeat, stop — and that loop is the same whichever model (or none) sits in a handler, so it ships once:
+
+```python
+from hallpass import serve_queue
+
+# inside the spawned agent's process:
+serve_queue(
+    q, "worker-1", {"resize": lambda task: {"width": task.args["width"]}},
+    heartbeat=lambda: bus.announce(me, "fleet"),   # stay on the live roster
+    stop=should_stop,                              # or omit to drain-and-return
+)
+```
+
+`serve_queue` claims from a `TaskQueue`, dispatches by operation, and completes each task (idempotent, lease-safe); a raising handler completes `ok=False` with only the exception *type*, never its message. `run_worker` is the same loop over an A2A `Worker`/channel. Both take an injectable `sleep` (so they test without wall-clock waits) and a `heartbeat` hook that ties in the live roster. The handler is where your model or tool call goes — the auth boundary is unchanged, since it acts with the agent's scoped token. Runnable: [`examples/reference_agent.py`](examples/reference_agent.py).
 
 ## Assembling it by hand
 
