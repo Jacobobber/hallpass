@@ -23,6 +23,7 @@ import base64
 import hashlib
 import json
 import secrets
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ __all__ = [
     "OAuthError",
     "PendingStore",
     "InMemoryPendingStore",
+    "SqlitePendingStore",
     "TokenHttp",
     "HttpxTokenClient",
 ]
@@ -97,6 +99,87 @@ class InMemoryPendingStore:
         if self._now() - record.created_at > self._ttl:
             return None
         return record
+
+
+class SqlitePendingStore:
+    """A PendingStore backed by SQLite, so OAuth ``start`` and ``finish`` can
+    land on different instances behind a load balancer. State is single-use
+    (deleted on pop, atomically) and expires by TTL. Pass a file ``path`` for
+    cross-process sharing; ``:memory:`` is a single-process fallback."""
+
+    def __init__(
+        self,
+        *,
+        path: str = ":memory:",
+        ttl_seconds: float = 600.0,
+        now: Callable[[], float] = time.time,
+    ) -> None:
+        import sqlite3
+
+        self._ttl = ttl_seconds
+        self._now = now
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(
+            path, check_same_thread=False, isolation_level=None
+        )
+        with self._lock:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS oauth_pending ("
+                " state TEXT PRIMARY KEY, subject TEXT NOT NULL,"
+                " service TEXT NOT NULL, code_verifier TEXT NOT NULL,"
+                " created_at REAL NOT NULL, scopes TEXT NOT NULL)"
+            )
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def put(self, state: str, pending: _Pending) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO oauth_pending"
+                " (state, subject, service, code_verifier, created_at, scopes)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    state,
+                    pending.subject,
+                    pending.service,
+                    pending.code_verifier,
+                    pending.created_at,
+                    " ".join(pending.scopes),
+                ),
+            )
+
+    def pop(self, state: str) -> _Pending | None:
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT subject, service, code_verifier, created_at, scopes"
+                    " FROM oauth_pending WHERE state = ?",
+                    (state,),
+                ).fetchone()
+                if row is not None:
+                    # single-use: remove it whether or not it has expired
+                    self._conn.execute(
+                        "DELETE FROM oauth_pending WHERE state = ?", (state,)
+                    )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+        if row is None:
+            return None
+        subject, service, verifier, created_at, scopes = row
+        if self._now() - float(created_at) > self._ttl:
+            return None
+        return _Pending(
+            subject=subject,
+            service=service,
+            code_verifier=verifier,
+            created_at=float(created_at),
+            scopes=tuple(scopes.split()) if scopes else (),
+        )
 
 
 class TokenHttp(Protocol):
