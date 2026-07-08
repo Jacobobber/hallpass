@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.2.0]
+
+- **Agent spawning** (`hallpass.agents`) — the orchestrator can now create scoped agents, not only dispatch to existing ones. `AgentSpec` describes an agent (name, harness scopes, task); `Team.spawn` mints it a token carrying only those scopes and launches it through a pluggable `Spawner` (default `SubprocessSpawner`), passing name/token/task/channel by environment; `AgentContext.from_env()` picks that up inside the spawned process. Each spawned agent is a scoped identity, not a trusted one, so its harness is the capability boundary (enforced at call time, audited). hallpass stays model-agnostic: it provisions the identity and harness and launches the process; the loop inside is yours. Demos: `examples/spawn_agents.py` and `examples/spawned_agent.py`. Additive.
+
 ## [1.1.0]
 
 - **Orchestrator harness** (`hallpass.orchestrator`) — an agent that drives worker agents, composed from the existing primitives. `Orchestrator.dispatch(worker, do, args=...)` posts a FLEX `task` addressed to a worker and tagged with an id; `Worker` runs a registered handler for the task's operation and posts a `result` tagged with the same id; `Orchestrator.gather(ids)` matches results back. It rides `A2ABus`, so it is scope-gated (the harness does not bypass the auth core), durable (a worker can die mid-task and see it on reconnect), and audited. At-least-once delivery with `gather` de-duplicating by id; a failed handler reports only the exception type. Runnable demo: `examples/orchestrator.py`. Additive; no breaking changes.

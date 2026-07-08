@@ -4,7 +4,7 @@
 
 Multi-user auth core for MCP servers: per-user OAuth 2.1 verification against any OIDC provider, an encrypted per-user credential vault, and scope-derived tool gating that is enforced at call time, not just in the catalog. The same identity and scope model also governs agent-to-agent channels, agent orchestration, and relevance-ranked tool search, so one auth layer covers agent-to-tools, agent-to-agent, and finding the right tool among many.
 
-**Status: v1.1 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that drives worker agents over them, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
+**Status: v1.2 — stable.** Core, MCP adapter, operational layer (audit, rate limiting, availability, idempotency), agent-to-agent channels (with FLEX, a token-efficient message language) and an orchestrator that spawns scoped worker agents and drives them over those channels, tool search, batteries-included setup, a catalog of prewired connectors, a per-provider OAuth connect flow with self-healing token refresh and consent/revoke, transient-error retry with backoff, untrusted-message sanitization, a response-size guard, a `doctor()` config self-check, and a runnable HTTP reference server + `hallpass` CLI are in place and green. The public API (everything exported from `hallpass`) is committed to under semver from 1.0; see [CHANGELOG.md](CHANGELOG.md).
 
 The design essay behind this: [Multi-user is the hard part of an MCP server](docs/multi-user-is-the-hard-part.md).
 
@@ -212,6 +212,29 @@ print(orch.gather([task_id])[task_id])  # Result(ok=True, fields={"status": "don
 ```
 
 Because it rides `A2ABus`, dispatch and results are gated by the channel's scopes (the harness does not bypass the auth core), durable (a worker that dies mid-task sees it on reconnect), and audited through the same sink. Delivery is at-least-once, so `gather` de-duplicates by task id and handlers should be idempotent; a handler that raises produces a failed result carrying only the exception type, never its message. Addressing is by convention on a shared channel; for hard isolation, give each worker its own channel with its own read scope. A runnable end-to-end demo is [`examples/orchestrator.py`](examples/orchestrator.py).
+
+### Spawning agents
+
+The step past dispatching to workers that already exist is *creating* them, each with a different harness and a different task. `Team.spawn` mints each agent a token carrying only its harness scopes and launches it through a pluggable `Spawner`, passing the identity, task, and channel by environment:
+
+```python
+from hallpass import Team, SubprocessSpawner, AgentSpec, dev_app
+
+_, mint = dev_app()   # or your IdP's client-credentials flow in production
+team = Team(mint=lambda name, scopes: mint(name, scopes),
+            spawner=SubprocessSpawner(["python", "agent.py"]), channel="work")
+
+team.spawn(AgentSpec("reviewer",  scopes=frozenset({"github:read"}), task="review PR 42"))
+team.spawn(AgentSpec("messenger", scopes=frozenset({"slack:write"}), task="post to #eng"))
+```
+
+```python
+# inside agent.py (the spawned process)
+from hallpass import AgentContext
+ctx = AgentContext.from_env()      # ctx.name, ctx.token (scoped), ctx.task, ctx.channel
+```
+
+This is the point of building on hallpass rather than cloning agent-teams: **each spawned agent is a scoped identity, not a trusted one**. The reviewer's token carries `github:read` and nothing else, the messenger's carries `slack:write` and nothing else, so a compromised or confused agent can only reach the tools its harness grants, enforced at call time and audited. Isolation between agents is the auth layer. hallpass stays model-agnostic: it provisions the identity and harness and launches the process; what thinks inside it is yours (swap `SubprocessSpawner` for any `Spawner`). A runnable two-process demo is [`examples/spawn_agents.py`](examples/spawn_agents.py).
 
 ## Assembling it by hand
 
