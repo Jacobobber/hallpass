@@ -1,6 +1,6 @@
 [project]
 name = "hallpass"
-version = "0.18.0"
+version = "0.19.0"
 description = "Multi-user auth core for MCP servers: per-user OAuth, encrypted credential vault, scope-gated tools."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,6 +33,9 @@ connectors = ["httpx>=0.27"]
 
 [project.urls]
 Repository = "https://github.com/Jacobobber/hallpass"
+
+[project.scripts]
+hallpass = "hallpass.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "mcp>=1.9", "httpx>=0.27", "hypothesis>=6"]
