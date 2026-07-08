@@ -224,6 +224,8 @@ Beyond the named cases, `tests/test_properties.py` puts the four core invariants
 uv run --group dev pytest -q
 ```
 
+Tool search is also measured, not asserted on faith: `python evals/tool_search_benchmark.py` scores the ranker against a naive keyword-overlap baseline on labelled queries and prints the numbers (currently MRR 0.94 vs 0.81, top-3 on every query). If a ranking change ever makes search no better than keyword matching, the harness says so and the regression guard fails.
+
 ## What this is not
 
 Not an identity provider (bring any OIDC issuer), not an MCP framework (the core is transport-agnostic; the MCP adapter is a thin optional extra), and not a gateway in front of servers - it is the inside of one server done right.
