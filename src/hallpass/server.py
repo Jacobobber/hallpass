@@ -37,6 +37,8 @@ def build(
     audit: AuditSink | None = None,
     rate_limit: tuple[int, float] | None = None,
     idempotency: IdempotencyStore | None = None,
+    service_claim: str | None = None,
+    service_values: frozenset[str] = frozenset(),
     connectors: Iterable[Connector] = (),
 ) -> Hallpass:
     """Assemble a ready Hallpass from minimal configuration.
@@ -45,14 +47,23 @@ def build(
     over HTTPS) or a ``jwks`` source. ``vault_key`` is the Fernet key for the
     per-user credential store; if omitted a fresh one is generated, which is
     fine for a single process but must be supplied to survive restarts.
-    ``rate_limit`` is ``(max_calls, window_seconds)``. Connectors are
-    registered in order.
+    ``rate_limit`` is ``(max_calls, window_seconds)``. ``service_claim`` /
+    ``service_values`` mark a token as a service (machine-to-machine) principal
+    (e.g. Auth0 ``gty=client-credentials``, Azure ``idtyp=app``) — needed if you
+    guard spawned agents as service identities. Connectors are registered in
+    order.
     """
     if jwks is None:
         if not jwks_url:
             raise ValueError("provide either jwks_url or a jwks source")
         jwks = HttpJwks(jwks_url)
-    verifier = TokenVerifier(issuer=issuer, audience=audience, jwks=jwks)
+    verifier = TokenVerifier(
+        issuer=issuer,
+        audience=audience,
+        jwks=jwks,
+        service_claim=service_claim,
+        service_values=service_values,
+    )
     vault = CredentialVault(vault_key or Fernet.generate_key(), path=vault_path)
     limiter: RateLimiter | None = None
     if rate_limit is not None:
@@ -69,6 +80,10 @@ def build(
     return app
 
 
+_DEV_SERVICE_CLAIM = "hp_kind"
+_DEV_SERVICE_VALUE = "service"
+
+
 def dev_app(
     *,
     connectors: Iterable[Connector] = (),
@@ -82,6 +97,14 @@ def dev_app(
 
         app, token = dev_app(connectors=[kit])
         app.call_tool(token("alice", ["notes:read"]), "read_note", {"id": "1"})
+
+    The minter takes ``service=True`` to mint a service (machine-to-machine)
+    token, which the app's verifier recognizes as a service principal — enough
+    to exercise a ``ProvisioningGuard`` over spawned agents locally:
+
+        team = Team(mint=lambda n, s: token(n, s, service=True),
+                    spawner=..., channel="work",
+                    guard=ProvisioningGuard(app.verifier))
 
     NOT for production: the signing key lives in this process and the minter
     will sign a token for any subject and scopes you ask for.
@@ -97,10 +120,14 @@ def dev_app(
         issuer=issuer,
         audience=audience,
         jwks=StaticJwks({"keys": [jwk]}),
+        service_claim=_DEV_SERVICE_CLAIM,
+        service_values=frozenset({_DEV_SERVICE_VALUE}),
         connectors=connectors,
     )
 
-    def token(subject: str, scopes: Iterable[str] = ()) -> str:
+    def token(
+        subject: str, scopes: Iterable[str] = (), *, service: bool = False
+    ) -> str:
         now = int(time.time())
         claims = {
             "iss": issuer,
@@ -110,6 +137,8 @@ def dev_app(
             "iat": now,
             "exp": now + 3600,
         }
+        if service:
+            claims[_DEV_SERVICE_CLAIM] = _DEV_SERVICE_VALUE
         return jwt.encode(claims, key, algorithm="RS256", headers={"kid": "dev"})
 
     return app, token

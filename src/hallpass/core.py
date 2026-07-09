@@ -79,6 +79,13 @@ class Hallpass:
     # -- read-only introspection (used by hallpass.diagnostics.doctor) -----
 
     @property
+    def verifier(self) -> TokenVerifier:
+        """The token verifier this app checks bearers against. Read-only;
+        exposed so a caller can build a `ProvisioningGuard` (which verifies a
+        spawned agent's minted token) from the same verifier the server uses."""
+        return self._verifier
+
+    @property
     def tool_names(self) -> list[str]:
         """Every registered tool name, sorted."""
         return sorted(self._services)

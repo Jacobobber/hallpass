@@ -21,6 +21,8 @@ from .agents import (
     AgentContext,
     AgentHandle,
     AgentSpec,
+    ProvisioningError,
+    ProvisioningGuard,
     Spawner,
     SubprocessSpawner,
     Team,
@@ -81,7 +83,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.10.1"
+__version__ = "1.11.0"
 
 __all__ = [
     "A2ABus",
@@ -125,6 +127,8 @@ __all__ = [
     "Orchestrator",
     "PendingStore",
     "Principal",
+    "ProvisioningError",
+    "ProvisioningGuard",
     "QueueHandler",
     "Result",
     "RateLimited",
