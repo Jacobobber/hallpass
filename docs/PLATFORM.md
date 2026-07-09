@@ -105,8 +105,10 @@ out of band — all audited.
 separation of duties, human gates.
 *Landed:* **roles** (`Role` / `RoleStore`, v1.16.0) — named scope sets assigned to principals; a
 subject's effective scopes are the union of its roles (`scopes_for`), so membership is holding a role
-and an org change is a role change. In-memory and durable (`SqliteRoleStore`) stores.
-*Next in the phase:* delegation, seats, non-author approval + separation of duties, human gates.
+and an org change is a role change. And **delegation** (`DelegationLedger`, v1.17.0) — a bounded,
+expiring, scope-*narrowing* hand-off: a principal lends a subset of its own scopes to another (refusing
+to exceed them), counted by `active_scopes` only until the TTL lapses. Both in-memory and durable.
+*Next in the phase:* seats, non-author approval + separation of duties, human gates.
 *Milestone:* a destructive task requires an approving human principal distinct from the requester, is
 held pending until that human decides, and the chain is reconstructable from the audit trail — with a
 named test asserting an author cannot self-approve.
