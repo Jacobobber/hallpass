@@ -72,6 +72,7 @@ from .oauth import (
 )
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
 from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
+from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
 from .taskqueue import LeasedTask, TaskQueue
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
@@ -95,7 +96,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.17.0"
+__version__ = "1.18.0"
 
 __all__ = [
     "A2ABus",
@@ -140,6 +141,7 @@ __all__ = [
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
     "InMemoryRoleStore",
+    "InMemorySeatLedger",
     "JwksSource",
     "LeasedTask",
     "LexicalRanker",
@@ -163,11 +165,14 @@ __all__ = [
     "RoleError",
     "RoleStore",
     "Router",
+    "Seat",
+    "SeatLedger",
     "SqliteAuditLog",
     "SqliteConsentLedger",
     "SqliteDelegationLedger",
     "SqlitePendingStore",
     "SqliteRoleStore",
+    "SqliteSeatLedger",
     "Spawner",
     "StaticJwks",
     "SubprocessSpawner",

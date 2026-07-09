@@ -107,8 +107,10 @@ separation of duties, human gates.
 subject's effective scopes are the union of its roles (`scopes_for`), so membership is holding a role
 and an org change is a role change. And **delegation** (`DelegationLedger`, v1.17.0) — a bounded,
 expiring, scope-*narrowing* hand-off: a principal lends a subset of its own scopes to another (refusing
-to exceed them), counted by `active_scopes` only until the TTL lapses. Both in-memory and durable.
-*Next in the phase:* seats, non-author approval + separation of duties, human gates.
+to exceed them), counted by `active_scopes` only until the TTL lapses. And **seats** (`SeatLedger`,
+v1.18.0) — durable per-`(channel, role)` membership with self-service rebind, the stable org chart
+under the soft live view presence gives. All in-memory and durable.
+*Next in the phase:* non-author approval + separation of duties, human gates.
 *Milestone:* a destructive task requires an approving human principal distinct from the requester, is
 held pending until that human decides, and the chain is reconstructable from the audit trail — with a
 named test asserting an author cannot self-approve.
