@@ -58,6 +58,13 @@ from .diagnostics import Finding, doctor, format_report
 from .dm import DirectChannel, direct_channel, open_dm
 from .gating import ToolAnnotations, ToolDenied, ToolGate, ToolSpec, UnknownTool
 from .guard import TRUNCATED_KEY, guard_response
+from .humangate import (
+    Gate,
+    HumanGateError,
+    HumanGateLedger,
+    InMemoryHumanGateLedger,
+    SqliteHumanGateLedger,
+)
 from .identity import (
     HttpJwks,
     JwksSource,
@@ -104,7 +111,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 
 __all__ = [
     "A2ABus",
@@ -137,6 +144,7 @@ __all__ = [
     "Endpoint",
     "Finding",
     "FixedWindowRateLimiter",
+    "Gate",
     "Hallpass",
     "Handler",
     "Harness",
@@ -145,11 +153,14 @@ __all__ = [
     "HttpJwks",
     "HttpxClient",
     "HttpxTokenClient",
+    "HumanGateError",
+    "HumanGateLedger",
     "IdempotencyStore",
     "InMemoryApprovalLedger",
     "InMemoryAuditLog",
     "InMemoryConsentLedger",
     "InMemoryDelegationLedger",
+    "InMemoryHumanGateLedger",
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
     "InMemoryRoleStore",
@@ -183,6 +194,7 @@ __all__ = [
     "SqliteAuditLog",
     "SqliteConsentLedger",
     "SqliteDelegationLedger",
+    "SqliteHumanGateLedger",
     "SqlitePendingStore",
     "SqliteRoleStore",
     "SqliteSeatLedger",
