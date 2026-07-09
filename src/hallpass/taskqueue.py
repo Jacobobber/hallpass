@@ -72,6 +72,14 @@ class TaskQueue:
                 " leased_by TEXT, leased_at REAL,"
                 " ok INTEGER, result TEXT, worker TEXT, created_at REAL NOT NULL)"
             )
+            # claim() and outstanding() filter on status and order by created_at;
+            # without this the queue does a full table scan that grows with the
+            # accumulated done rows. Keyed (status, created_at) so the planner
+            # can seek the pending/leased rows in creation order.
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_status_created"
+                " ON tasks(status, created_at)"
+            )
 
     def close(self) -> None:
         with self._lock:

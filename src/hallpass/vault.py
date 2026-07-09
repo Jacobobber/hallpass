@@ -41,6 +41,8 @@ class CredentialVault:
         self._path = path
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
+        # WAL uniformly across the SQLite-backed stores (no-op on :memory:).
+        self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
 

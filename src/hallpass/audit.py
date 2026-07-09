@@ -80,6 +80,9 @@ class SqliteAuditLog:
     def __init__(self, *, path: str = ":memory:") -> None:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
+        # WAL uniformly across the SQLite-backed stores: concurrent readers do
+        # not block the writer. (A no-op on the :memory: default.)
+        self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock, self._conn:
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS audit ("
@@ -87,6 +90,18 @@ class SqliteAuditLog:
                 " subject TEXT NOT NULL, action TEXT NOT NULL,"
                 " decision TEXT NOT NULL, tool TEXT, reason TEXT NOT NULL,"
                 " at REAL NOT NULL, duration_ms REAL)"
+            )
+            # query() filters on subject/tool; the audit table is the
+            # highest-volume store, so these keep "what did user X do" and
+            # "what touched tool Y" off a full scan as the trail grows. No
+            # index on `at`: with ORDER BY id DESC + LIMIT the planner walks id
+            # backwards and stops early, so a time-bound query is already cheap
+            # and an `at` index would only add write cost on the hottest table.
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit(subject)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit(tool)"
             )
 
     def close(self) -> None:
