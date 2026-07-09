@@ -122,6 +122,8 @@ class SqlitePendingStore:
         self._conn = sqlite3.connect(
             path, check_same_thread=False, isolation_level=None
         )
+        # WAL uniformly across the SQLite-backed stores (no-op on :memory:).
+        self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock:
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS oauth_pending ("

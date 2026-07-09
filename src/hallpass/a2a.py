@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS a2a_presence (
     last_seen REAL NOT NULL,
     PRIMARY KEY (channel, subject)
 );
+
+-- roster() filters a channel's rows by last_seen; the PK's leading column is
+-- the channel, but the recency bound is not covered by it, so key both.
+CREATE INDEX IF NOT EXISTS idx_a2a_presence_channel_seen
+    ON a2a_presence(channel, last_seen);
 """
 
 
