@@ -2,6 +2,11 @@
 
 *Everyone ships the tools. Almost nobody ships whose tools they are.*
 
+> This is the origin essay — why the auth core is built the way it is, at the
+> scale of one server serving many users. Its sequel at the next scale (many
+> agents, each its own identity, organized and governed) is
+> [agent-identity-and-organization.md](agent-identity-and-organization.md).
+
 Write an MCP server and the tutorial path is short: define some tools, wire them to a service, drop the API key in an environment variable, run it over stdio. It works, it demos well, and it is single-user to the bone. One process, one identity, one set of credentials that belongs to whoever started it.
 
 The moment that server fronts real services for more than one person, three questions arrive at once, and the tutorial answered none of them.

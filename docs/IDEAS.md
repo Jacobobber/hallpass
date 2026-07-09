@@ -1,8 +1,13 @@
 # Ideas and roadmap
 
-Candidates, not commitments. Where hallpass could go next, kept in the repo so
-the direction is visible and ideas do not get lost. An item moves to "done"
-only when it is built and tested.
+Candidates, not commitments — the near-term, concrete engineering backlog. Where
+hallpass could go next, kept in the repo so the direction is visible and ideas
+do not get lost. An item moves to "done" only when it is built and tested.
+
+For the big-picture direction (hallpass as the substrate under a deployable
+multi-agent org platform) and the phased plan, see [PLATFORM.md](PLATFORM.md).
+Shipped history lives in [CHANGELOG.md](../CHANGELOG.md); the "Done" list below
+is a quick in-context index of the same.
 
 ## Done
 
@@ -22,7 +27,7 @@ only when it is built and tested.
 - Batteries-included setup: `ToolKit` decorator connectors, `build()` / `dev_app()`.
 - Runnable server + CLI: `hallpass.http_server` is a dependency-free HTTP reference server (pure `handle_request` + stdlib `http.server`) that gates exactly like the core (per-bearer `/tools`, verified+gated `/call`, opaque 404, capped body, no credential/traceback leakage — security-reviewed); the `hallpass` CLI (`serve` / `doctor` / `catalog`) makes "clone and run a real multi-user server" one command.
 - Prewired connector catalog: declarative REST framework + a growing catalog (see docs/CATALOG.md), with bearer / token / bot / basic / header / query auth and per-tenant base URLs.
-- Per-provider OAuth connect flow (`OAuthConnect`): authorization-code with single-use state and PKCE, code exchange and refresh, tokens stored in the vault where the connector reads them; 20 catalog services carry prewired OAuth endpoints via `catalog.oauth_provider`.
+- Per-provider OAuth connect flow (`OAuthConnect`): authorization-code with single-use state and PKCE, code exchange and refresh, tokens stored in the vault where the connector reads them; 22 catalog services carry prewired OAuth endpoints via `catalog.oauth_provider`.
 - Self-healing token refresh: `OAuthConnect.attach_refresh(connector)` renews a stale token and retries once on a 401/403 (non-auth errors are not retried, and a no-op refresh does not loop); `OAuthConnect.valid_token()` refreshes proactively when the stored token is expiring. `ConnectorError` now carries the HTTP `status`.
 
 ## OAuth follow-ups (surfaced while building it)
@@ -40,7 +45,7 @@ cover, each a small framework addition:
 - ~~**Form-encoded bodies** (Stripe, some legacy APIs): add a body-encoding option.~~ **Done** — an endpoint sets `form=True` to send its body as `application/x-www-form-urlencoded` (via a new `data=` on the HTTP client) instead of JSON; `HttpClient`/`HttpxClient`/`RetryingHttpClient` carry it, and `data=` is passed only for form endpoints so JSON-only clients never see it. Stripe's write endpoints (`stripe_create_customer`, `stripe_update_customer`) ship on the back of it.
 - ~~**GraphQL** (Linear, monday, GitHub v4): a small GraphQL helper (named operations, variables) would make it first-class.~~ **Done** — `Endpoint.graphql` holds a fixed query document; the tool POSTs `{"query": <doc>, "variables": {<args>}}`, so a caller invokes a named operation (Linear now ships `linear_viewer` / `linear_my_issues` / `linear_teams` / `linear_issue`) instead of hand-writing GraphQL. Tool args become the variables and appear in the argument schema.
 - ~~**Multi-credential services** (Twilio SID + token, Datadog API + app key): the vault stores one credential per (user, service); support a small credential bundle per service.~~ **Done** — the `("multi", ((placement, name, field), ...))` auth style: the user stores a JSON bundle in the single slot, and each field is placed in its own header/query parameter. Datadog (DD-API-KEY + DD-APPLICATION-KEY) ships on it; a malformed bundle is a clean `ConnectorError` and is never echoed.
-- ~~**Non-standard token placement** (PagerDuty `Authorization: Token token=...`): a templated auth style, e.g. `("template", "Token token={cred}")`.~~ **Done** — the `("template", "Token token={cred}")` auth style renders the credential into any Authorization scheme; PagerDuty, Square, Bitbucket, Stripe (read), and Freshdesk were added on the back of it (catalog now 46 services / 106 tools).
+- ~~**Non-standard token placement** (PagerDuty `Authorization: Token token=...`): a templated auth style, e.g. `("template", "Token token={cred}")`.~~ **Done** — the `("template", "Token token={cred}")` auth style renders the credential into any Authorization scheme; PagerDuty, Square, Bitbucket, Stripe (read), and Freshdesk were added on the back of it (catalog at the time 46 services / 106 tools; now 47 / 115 — see docs/CATALOG.md).
 
 ## Reliability and correctness
 

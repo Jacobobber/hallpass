@@ -8,8 +8,14 @@ each one refuses, are documented in the module docstrings
 suites.
 
 In scope: token verification (audience, issuer, algorithm, signature, key
-rotation), credential isolation at rest and across users, and scope gating
-at call time.
+rotation), credential isolation at rest and across subjects (users and
+agents), and scope gating at call time. The coordination layer is in scope
+too, since it rides the same identity and scope model: channel
+authorization (post/read gated by scope), opaque denial (an undeclared
+channel is indistinguishable from an unauthorized one), and the
+untrusted-message sanitization boundary (`sanitize` / `frame_untrusted`,
+which neutralize control/escape/bidi/zero-width spoofing but do not claim to
+detect semantic prompt injection).
 
 Out of scope by design: hallpass is not an identity provider (bring your
 own OIDC issuer) and does not manage the encryption key's lifecycle (the
