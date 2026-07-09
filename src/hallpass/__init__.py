@@ -30,6 +30,14 @@ from .agents import (
     Team,
     join_channel,
 )
+from .approvals import (
+    Approval,
+    ApprovalError,
+    ApprovalLedger,
+    InMemoryApprovalLedger,
+    SqliteApprovalLedger,
+    separation_of_duties,
+)
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog, SqliteAuditLog
 from .connectors import Connector, UserContext
 from .consent import (
@@ -96,7 +104,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.18.0"
+__version__ = "1.19.0"
 
 __all__ = [
     "A2ABus",
@@ -106,6 +114,9 @@ __all__ = [
     "AgentHandle",
     "AgentMinter",
     "AgentSpec",
+    "Approval",
+    "ApprovalError",
+    "ApprovalLedger",
     "AuditEvent",
     "AuditSink",
     "BreakerPolicy",
@@ -135,6 +146,7 @@ __all__ = [
     "HttpxClient",
     "HttpxTokenClient",
     "IdempotencyStore",
+    "InMemoryApprovalLedger",
     "InMemoryAuditLog",
     "InMemoryConsentLedger",
     "InMemoryDelegationLedger",
@@ -167,6 +179,7 @@ __all__ = [
     "Router",
     "Seat",
     "SeatLedger",
+    "SqliteApprovalLedger",
     "SqliteAuditLog",
     "SqliteConsentLedger",
     "SqliteDelegationLedger",
@@ -207,6 +220,7 @@ __all__ = [
     "open_dm",
     "run_worker",
     "sanitize",
+    "separation_of_duties",
     "serve_queue",
     "tokenize",
 ]
