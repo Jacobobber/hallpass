@@ -39,6 +39,13 @@ from .consent import (
     SqliteConsentLedger,
 )
 from .core import Hallpass
+from .delegation import (
+    Delegation,
+    DelegationError,
+    DelegationLedger,
+    InMemoryDelegationLedger,
+    SqliteDelegationLedger,
+)
 from .diagnostics import Finding, doctor, format_report
 from .dm import DirectChannel, direct_channel, open_dm
 from .gating import ToolAnnotations, ToolDenied, ToolGate, ToolSpec, UnknownTool
@@ -88,7 +95,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.16.0"
+__version__ = "1.17.0"
 
 __all__ = [
     "A2ABus",
@@ -111,6 +118,9 @@ __all__ = [
     "Consent",
     "ConsentLedger",
     "CredentialVault",
+    "Delegation",
+    "DelegationError",
+    "DelegationLedger",
     "DirectChannel",
     "Endpoint",
     "Finding",
@@ -126,6 +136,7 @@ __all__ = [
     "IdempotencyStore",
     "InMemoryAuditLog",
     "InMemoryConsentLedger",
+    "InMemoryDelegationLedger",
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
     "InMemoryRoleStore",
@@ -154,6 +165,7 @@ __all__ = [
     "Router",
     "SqliteAuditLog",
     "SqliteConsentLedger",
+    "SqliteDelegationLedger",
     "SqlitePendingStore",
     "SqliteRoleStore",
     "Spawner",
