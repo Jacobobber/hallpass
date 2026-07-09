@@ -88,10 +88,13 @@ harness), closing the one misprovisioning path by which a spawned agent could ac
 identity; `dev_app` mints service tokens and exposes the app's verifier so it works out of the box.
 **harness presets** (`Harness` / `HarnessRegistry`, v1.12.0) — `AgentSpec.harness` resolves to a
 declared preset and an agent's scopes are bounded to it before minting, so an agent type's capability
-ceiling is declared once. And **minter-as-service** (`AgentMinter` / `ClientCredentialsMinter`,
+ceiling is declared once. **minter-as-service** (`AgentMinter` / `ClientCredentialsMinter`,
 v1.13.0) — each agent obtains its *own* service token from the IdP's client-credentials grant (one
-OAuth client per agent), so "own identity, own keys" is a production code path, not a dev signer.
-*Next in the phase:* agent rotate/revoke/reap, self-registration.
+OAuth client per agent), so "own identity, own keys" is a production code path, not a dev signer. And
+**boot-time self-registration** (`join_channel`, `AgentContext.scopes`/`.principal()`, v1.14.0) — a
+spawned agent carries its own scopes, reconstructs its principal, and announces itself onto its channel
+(and, in-process, registers with a `Router`) so an orchestrator discovers it live without
+pre-configuring it. *Next in the phase:* agent rotate/revoke/reap — then Phase 1 is complete.
 *Milestone:* an agent boots, obtains its *own* service credential from the IdP (no dev minter, no
 operator token), self-registers, runs a task under its scoped harness, and can be rotated and revoked
 out of band — all audited.
