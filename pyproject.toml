@@ -1,6 +1,6 @@
 [project]
 name = "hallpass"
-version = "1.12.0"
+version = "1.13.0"
 description = "Auth-native substrate for multi-agent organizations: per-agent identity, scope-as-capability, coordination gated by one core."
 readme = "README.md"
 requires-python = ">=3.10"

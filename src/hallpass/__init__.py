@@ -51,6 +51,7 @@ from .identity import (
     VerificationError,
 )
 from .idempotency import IdempotencyStore, InMemoryIdempotencyStore
+from .minter import AgentClient, AgentMinter, ClientCredentialsMinter
 from .oauth import (
     HttpxTokenClient,
     InMemoryPendingStore,
@@ -85,13 +86,15 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 __all__ = [
     "A2ABus",
     "A2AMessage",
+    "AgentClient",
     "AgentContext",
     "AgentHandle",
+    "AgentMinter",
     "AgentSpec",
     "AuditEvent",
     "AuditSink",
@@ -100,6 +103,7 @@ __all__ = [
     "ChannelPolicy",
     "CircuitBreakerHttpClient",
     "CircuitOpen",
+    "ClientCredentialsMinter",
     "Connector",
     "ConnectorError",
     "Consent",
