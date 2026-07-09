@@ -87,7 +87,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.14.0"
+__version__ = "1.15.0"
 
 __all__ = [
     "A2ABus",

@@ -80,8 +80,7 @@ The scalability of the substrate today, from a real audit (concurrency measured,
 
 ## Phased roadmap
 
-**Phase 1 — Identity hardening + Harness SDK.** Minter-as-service + the provisioning guard, harness
-presets, agent rotate/revoke/reap, self-registration.
+**Phase 1 — Identity hardening + Harness SDK. ✅ Complete (v1.11.0–v1.15.0).**
 *Landed:* the **`ProvisioningGuard`** (v1.11.0) — a `Team` given one verifies each minted token and
 refuses to launch an agent that is not its own scoped **service** identity (subject == name, scopes ==
 harness), closing the one misprovisioning path by which a spawned agent could act with a human's
@@ -94,7 +93,10 @@ OAuth client per agent), so "own identity, own keys" is a production code path, 
 **boot-time self-registration** (`join_channel`, `AgentContext.scopes`/`.principal()`, v1.14.0) — a
 spawned agent carries its own scopes, reconstructs its principal, and announces itself onto its channel
 (and, in-process, registers with a `Router`) so an orchestrator discovers it live without
-pre-configuring it. *Next in the phase:* agent rotate/revoke/reap — then Phase 1 is complete.
+pre-configuring it. And **agent lifecycle** (`Team.reap` / `terminate` / `rotate`, v1.15.0) — reap
+exited agents, terminate one by name, and rotate an agent's identity (re-mint + re-launch under the
+same spec, re-running the guard). Downstream *credential* revocation stays the operator's call (kill
+the IdP client / `OAuthConnect.disconnect`). **Phase 1 is done — the next block is P2 governance.**
 *Milestone:* an agent boots, obtains its *own* service credential from the IdP (no dev minter, no
 operator token), self-registers, runs a task under its scoped harness, and can be rotated and revoked
 out of band — all audited.

@@ -301,6 +301,9 @@ class Team:
         # ceiling is declared once, not re-typed per spawn.
         self._harnesses = harnesses
         self._handles: list[AgentHandle] = []
+        # Latest spec per agent name, so an agent can be rotated (re-minted +
+        # re-launched under the same spec) without the caller re-supplying it.
+        self._specs: dict[str, AgentSpec] = {}
 
     def spawn(
         self, spec: AgentSpec, *, extra_env: Mapping[str, str] | None = None
@@ -325,6 +328,7 @@ class Team:
         }
         handle = self._spawner.spawn(spec, env)
         self._handles.append(handle)
+        self._specs[spec.name] = spec
         return handle
 
     @property
@@ -339,6 +343,39 @@ class Team:
         """Terminate every agent this team spawned."""
         for handle in self._handles:
             handle.terminate()
+
+    def terminate(self, name: str) -> bool:
+        """Terminate a specific agent by name and stop tracking it. Returns True
+        if one was running. Revoking the agent's *credentials* is separate (kill
+        its IdP client / `OAuthConnect.disconnect`); this stops the process."""
+        matched = [h for h in self._handles if h.name == name]
+        for handle in matched:
+            handle.terminate()
+        self._handles = [h for h in self._handles if h.name != name]
+        return bool(matched)
+
+    def reap(self) -> list[str]:
+        """Drop agents that have already exited from tracking and return their
+        names. Nothing is terminated -- these are already dead; this just keeps
+        the roster of tracked handles from growing without bound."""
+        dead = [h.name for h in self._handles if not h.alive()]
+        self._handles = [h for h in self._handles if h.alive()]
+        return dead
+
+    def rotate(
+        self, name: str, *, extra_env: Mapping[str, str] | None = None
+    ) -> AgentHandle:
+        """Rotate an agent's identity: terminate the running instance and spawn
+        a fresh one under the same spec, which re-mints its token (a new
+        credential) and re-runs the harness bound and provisioning guard. Raises
+        ``KeyError`` if the agent was never spawned by this team."""
+        spec = self._specs.get(name)
+        if spec is None:
+            raise KeyError(
+                f"no agent named {name!r} was spawned by this team; nothing to rotate"
+            )
+        self.terminate(name)
+        return self.spawn(spec, extra_env=extra_env)
 
     def _bound_to_harness(self, spec: AgentSpec) -> None:
         """Refuse, before minting, to spawn an agent whose requested scopes
