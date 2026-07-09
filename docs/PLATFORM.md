@@ -101,8 +101,7 @@ the IdP client / `OAuthConnect.disconnect`). **Phase 1 is done — the next bloc
 operator token), self-registers, runs a task under its scoped harness, and can be rotated and revoked
 out of band — all audited.
 
-**Phase 2 — Org / governance (in progress).** Roles, delegation, seats, non-author approval,
-separation of duties, human gates.
+**Phase 2 — Org / governance. ✅ Complete (v1.16.0–v1.20.0).**
 *Landed:* **roles** (`Role` / `RoleStore`, v1.16.0) — named scope sets assigned to principals; a
 subject's effective scopes are the union of its roles (`scopes_for`), so membership is holding a role
 and an org change is a role change. And **delegation** (`DelegationLedger`, v1.17.0) — a bounded,
@@ -112,11 +111,13 @@ v1.18.0) — durable per-`(channel, role)` membership with self-service rebind, 
 under the soft live view presence gives. And **separation of duties / non-author approval**
 (`ApprovalLedger` + `separation_of_duties`, v1.19.0) — an author never approves its own work, enforced
 both at approval time (distinct-approver count, `ApprovalError` on self-approval) and at provisioning
-time (a scope set holding both `author:X` and `approve:X` is refused). All in-memory and durable.
-*Next in the phase:* human gates — then Phase 2 is complete.
-*Milestone:* a destructive task requires an approving human principal distinct from the requester, is
-held pending until that human decides, and the chain is reconstructable from the audit trail — with a
-named test asserting an author cannot self-approve.
+time (a scope set holding both `author:X` and `approve:X` is refused). And **human gates**
+(`HumanGateLedger`, v1.20.0) — an action held `pending` until a human decides; `decide` refuses a
+service principal (`HumanGateError`), so an agent can never clear it, and records who did. All
+in-memory and durable. **Phase 2 is done — the next block is P3 enterprise backends.**
+*Milestone met:* a destructive action is held pending until a human principal (never a service one)
+decides, the decision is attributable and durable, and an author cannot approve its own work — each
+with a named test.
 
 **Phase 3 — Enterprise backends.** Redis cross-cuts + shared A2A policies first, then the Postgres
 backend for the coordination stores, then the vault backend seam + shared/KMS-per-org vault.
