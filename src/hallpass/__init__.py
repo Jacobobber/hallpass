@@ -64,6 +64,7 @@ from .oauth import (
     TokenHttp,
 )
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
+from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
 from .taskqueue import LeasedTask, TaskQueue
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .sanitize import frame_untrusted, sanitize
@@ -87,7 +88,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.15.0"
+__version__ = "1.16.0"
 
 __all__ = [
     "A2ABus",
@@ -127,6 +128,7 @@ __all__ = [
     "InMemoryConsentLedger",
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
+    "InMemoryRoleStore",
     "JwksSource",
     "LeasedTask",
     "LexicalRanker",
@@ -146,10 +148,14 @@ __all__ = [
     "RestService",
     "RetryPolicy",
     "RetryingHttpClient",
+    "Role",
+    "RoleError",
+    "RoleStore",
     "Router",
     "SqliteAuditLog",
     "SqliteConsentLedger",
     "SqlitePendingStore",
+    "SqliteRoleStore",
     "Spawner",
     "StaticJwks",
     "SubprocessSpawner",

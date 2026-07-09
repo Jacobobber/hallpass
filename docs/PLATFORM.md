@@ -101,8 +101,12 @@ the IdP client / `OAuthConnect.disconnect`). **Phase 1 is done — the next bloc
 operator token), self-registers, runs a task under its scoped harness, and can be rotated and revoked
 out of band — all audited.
 
-**Phase 2 — Org / governance.** Roles, delegation, seats, non-author approval, separation of duties,
-human gates.
+**Phase 2 — Org / governance (in progress).** Roles, delegation, seats, non-author approval,
+separation of duties, human gates.
+*Landed:* **roles** (`Role` / `RoleStore`, v1.16.0) — named scope sets assigned to principals; a
+subject's effective scopes are the union of its roles (`scopes_for`), so membership is holding a role
+and an org change is a role change. In-memory and durable (`SqliteRoleStore`) stores.
+*Next in the phase:* delegation, seats, non-author approval + separation of duties, human gates.
 *Milestone:* a destructive task requires an approving human principal distinct from the requester, is
 held pending until that human decides, and the chain is reconstructable from the audit trail — with a
 named test asserting an author cannot self-approve.
