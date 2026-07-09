@@ -19,7 +19,12 @@ from .agents import (
 )
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog, SqliteAuditLog
 from .connectors import Connector, UserContext
-from .consent import Consent, ConsentLedger, InMemoryConsentLedger
+from .consent import (
+    Consent,
+    ConsentLedger,
+    InMemoryConsentLedger,
+    SqliteConsentLedger,
+)
 from .core import Hallpass
 from .diagnostics import Finding, doctor, format_report
 from .dm import DirectChannel, direct_channel, open_dm
@@ -68,7 +73,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.9.1"
+__version__ = "1.10.0"
 
 __all__ = [
     "A2ABus",
@@ -122,6 +127,7 @@ __all__ = [
     "RetryingHttpClient",
     "Router",
     "SqliteAuditLog",
+    "SqliteConsentLedger",
     "SqlitePendingStore",
     "Spawner",
     "StaticJwks",

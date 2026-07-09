@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.10.0]
+
+- **Durable, thread-safe consent** (`SqliteConsentLedger`; `InMemoryConsentLedger` now locked). The scalability audit found the only `ConsentLedger` implementation was in-memory *and* had no lock — a durability gap (grants lost on restart) and a thread-safety bug under the threaded reference HTTP server, despite the docstrings promising a durable table. Fixed both: `InMemoryConsentLedger` now guards its map with a lock, and `SqliteConsentLedger(path=...)` persists grants behind the same `ConsentLedger` protocol (one connection, WAL, one lock — the vault/A2A/queue pattern), so a grant survives a restart and a revoke is durable. Wire it into `OAuthConnect(consent=...)` for a deployment that must remember consent across restarts or instances. Additive — `InMemoryConsentLedger` stays the default.
+
 ## [1.9.1]
 
 - **SQLite persistence hardening** (performance; no public API change). WAL is now enabled uniformly across every SQLite-backed store (previously only `A2ABus` and `TaskQueue` set it; `CredentialVault`, `SqliteAuditLog`, and `SqlitePendingStore` used the default rollback journal), so concurrent readers no longer block the writer. Added indexes on the hot queries that were full table scans: `tasks(status, created_at)` for `TaskQueue.claim`/`outstanding` (the scan grew with accumulated done rows), `audit(subject)` and `audit(tool)` for `SqliteAuditLog.query`, and `a2a_presence(channel, last_seen)` for `A2ABus.roster`. Index usage is asserted with `EXPLAIN QUERY PLAN` in the suite, and no index was added where the planner wouldn't use it — a time-bounded audit query already terminates early on a reverse-`id` walk, so an `at` index would only cost writes on the highest-volume table. Migration-safe (`CREATE INDEX IF NOT EXISTS`); builds on existing data.
