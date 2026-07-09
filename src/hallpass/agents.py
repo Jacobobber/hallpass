@@ -33,9 +33,13 @@ import os
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from .identity import TokenVerifier, VerificationError
+from .identity import Principal, TokenVerifier, VerificationError
+
+if TYPE_CHECKING:
+    from .a2a import A2ABus
+    from .orchestrator import Router
 
 __all__ = [
     "AgentSpec",
@@ -48,10 +52,12 @@ __all__ = [
     "Spawner",
     "SubprocessSpawner",
     "Team",
+    "join_channel",
     "ENV_NAME",
     "ENV_TOKEN",
     "ENV_TASK",
     "ENV_CHANNEL",
+    "ENV_SCOPES",
 ]
 
 # The contract between the spawner and the spawned agent program. Both sides
@@ -60,6 +66,7 @@ ENV_NAME = "HALLPASS_AGENT_NAME"
 ENV_TOKEN = "HALLPASS_AGENT_TOKEN"  # noqa: S105 - env var NAME, not a secret
 ENV_TASK = "HALLPASS_AGENT_TASK"
 ENV_CHANNEL = "HALLPASS_AGENT_CHANNEL"
+ENV_SCOPES = "HALLPASS_AGENT_SCOPES"  # space-joined; the agent's granted scopes
 
 
 @dataclass(frozen=True)
@@ -122,12 +129,21 @@ class HarnessRegistry:
 @dataclass(frozen=True)
 class AgentContext:
     """What a spawned agent picks up about itself. Its `token` carries only the
-    scopes its harness was granted; the core gates everything else."""
+    scopes its harness was granted; the core gates everything else. `scopes` is
+    the same set as a convenience so the agent can build its own `Principal`
+    (e.g. to join its channel) without decoding the token."""
 
     name: str
     token: str
     task: str
     channel: str
+    scopes: frozenset[str] = frozenset()
+
+    def principal(self) -> Principal:
+        """This agent's own principal (its name + granted scopes), for local
+        use of the bus/channels. Authoritative auth is still the token, verified
+        at a channel/tool service; this is the in-process identity."""
+        return Principal(subject=self.name, scopes=self.scopes)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AgentContext:
@@ -141,11 +157,13 @@ class AgentContext:
             raise KeyError(
                 "not running under a hallpass spawner; missing " + ", ".join(missing)
             )
+        raw_scopes = source.get(ENV_SCOPES, "")
         return cls(
             name=source[ENV_NAME],
             token=source[ENV_TOKEN],
             task=source[ENV_TASK],
             channel=source[ENV_CHANNEL],
+            scopes=frozenset(raw_scopes.split()),
         )
 
 
@@ -302,6 +320,7 @@ class Team:
             ENV_TOKEN: token,
             ENV_TASK: spec.task,
             ENV_CHANNEL: self._channel,
+            ENV_SCOPES: " ".join(sorted(spec.scopes)),
             **(dict(extra_env) if extra_env else {}),
         }
         handle = self._spawner.spawn(spec, env)
@@ -338,3 +357,26 @@ class Team:
                 f"harness {spec.harness!r} (allowed: {sorted(preset)}); widen the "
                 "harness or narrow the spec"
             )
+
+
+def join_channel(
+    bus: A2ABus,
+    ctx: AgentContext,
+    *,
+    router: Router | None = None,
+) -> Principal:
+    """Boot-time self-registration for a spawned agent. Announce presence on the
+    agent's channel so an orchestrator's roster sees it live, and -- if given an
+    in-process ``Router`` -- register the agent's capability so it can be routed
+    work, without the orchestrator having to pre-configure it. The channel must
+    already be declared on ``bus``; returns the agent's principal for reuse.
+
+    The agent presents its own ``Principal`` (its name + granted scopes). In a
+    single-process team the router is shared and this wires discovery directly;
+    across processes the ``announce`` is the durable signal an orchestrator reads
+    from the roster (a per-process ``Router`` lives with the orchestrator)."""
+    me = ctx.principal()
+    bus.announce(me, ctx.channel)
+    if router is not None:
+        router.register(ctx.name, ctx.scopes)
+    return me

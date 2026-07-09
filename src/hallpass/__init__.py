@@ -28,6 +28,7 @@ from .agents import (
     Spawner,
     SubprocessSpawner,
     Team,
+    join_channel,
 )
 from .audit import AuditEvent, AuditSink, InMemoryAuditLog, SqliteAuditLog
 from .connectors import Connector, UserContext
@@ -86,7 +87,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.13.0"
+__version__ = "1.14.0"
 
 __all__ = [
     "A2ABus",
@@ -179,6 +180,7 @@ __all__ = [
     "format_report",
     "frame_untrusted",
     "guard_response",
+    "join_channel",
     "open_dm",
     "run_worker",
     "sanitize",
