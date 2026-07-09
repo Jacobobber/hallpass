@@ -21,6 +21,8 @@ from .agents import (
     AgentContext,
     AgentHandle,
     AgentSpec,
+    Harness,
+    HarnessRegistry,
     ProvisioningError,
     ProvisioningGuard,
     Spawner,
@@ -83,7 +85,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 __all__ = [
     "A2ABus",
@@ -109,6 +111,8 @@ __all__ = [
     "FixedWindowRateLimiter",
     "Hallpass",
     "Handler",
+    "Harness",
+    "HarnessRegistry",
     "HttpClient",
     "HttpJwks",
     "HttpxClient",

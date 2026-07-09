@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -41,6 +41,8 @@ __all__ = [
     "AgentSpec",
     "AgentContext",
     "AgentHandle",
+    "Harness",
+    "HarnessRegistry",
     "ProvisioningError",
     "ProvisioningGuard",
     "Spawner",
@@ -69,7 +71,52 @@ class AgentSpec:
     name: str
     scopes: frozenset[str] = frozenset()
     task: str = ""
-    harness: str = ""  # optional label for the capability preset used
+    harness: str = ""  # names a Harness preset in the Team's registry (optional)
+
+
+@dataclass(frozen=True)
+class Harness:
+    """A named capability preset for a *type* of agent: the maximum scope set an
+    agent of this type may ever be granted. It makes ``AgentSpec.harness`` more
+    than a label — the Team resolves the name to this preset and refuses to
+    spawn an agent whose requested scopes exceed it, so "reviewer" or
+    "messenger" means one thing, declared once, everywhere it is spawned."""
+
+    name: str
+    scopes: frozenset[str] = frozenset()
+
+
+class HarnessRegistry:
+    """The declared harness types for a fleet. A ``Team`` consults it to resolve
+    ``AgentSpec.harness`` to its preset and bound the agent's scopes to it."""
+
+    def __init__(self, harnesses: Iterable[Harness] = ()) -> None:
+        self._by_name: dict[str, Harness] = {}
+        for harness in harnesses:
+            self.register(harness)
+
+    def register(self, harness: Harness) -> None:
+        """Add or replace a harness type."""
+        self._by_name[harness.name] = harness
+
+    def get(self, name: str) -> Harness | None:
+        return self._by_name.get(name)
+
+    def preset(self, name: str) -> frozenset[str]:
+        """The scope preset for ``name``. Raises ``KeyError`` if the harness
+        type was never declared — a spec asking for an unknown harness is a
+        misconfiguration, not a silent empty grant."""
+        harness = self._by_name.get(name)
+        if harness is None:
+            raise KeyError(
+                f"no harness named {name!r} is registered; declare it in the "
+                "HarnessRegistry before spawning an agent that uses it"
+            )
+        return harness.scopes
+
+    @property
+    def names(self) -> list[str]:
+        return sorted(self._by_name)
 
 
 @dataclass(frozen=True)
@@ -222,6 +269,7 @@ class Team:
         spawner: Spawner,
         channel: str,
         guard: ProvisioningGuard | None = None,
+        harnesses: HarnessRegistry | None = None,
     ) -> None:
         self._mint = mint
         self._spawner = spawner
@@ -230,16 +278,22 @@ class Team:
         # agent is launched; a token that is not this agent's own scoped service
         # identity raises ProvisioningError and nothing is spawned.
         self._guard = guard
+        # When set, a spec's `harness` names a preset here, and the agent's
+        # requested scopes must stay within it -- so an agent type's capability
+        # ceiling is declared once, not re-typed per spawn.
+        self._harnesses = harnesses
         self._handles: list[AgentHandle] = []
 
     def spawn(
         self, spec: AgentSpec, *, extra_env: Mapping[str, str] | None = None
     ) -> AgentHandle:
         """Provision the agent (mint its scoped token) and launch it. The agent
-        receives its name, token, task, and channel by environment. If a
-        ``ProvisioningGuard`` was given, the minted token is checked before
-        launch and a misprovisioned agent raises ``ProvisioningError`` instead
-        of starting."""
+        receives its name, token, task, and channel by environment. If the spec
+        names a ``harness`` and a ``HarnessRegistry`` was given, its scopes must
+        stay within that preset; and if a ``ProvisioningGuard`` was given, the
+        minted token is checked before launch. Either bound raises
+        ``ProvisioningError`` and nothing is spawned."""
+        self._bound_to_harness(spec)
         token = self._mint(spec.name, spec.scopes)
         if self._guard is not None:
             self._guard.check(spec, token)
@@ -266,3 +320,21 @@ class Team:
         """Terminate every agent this team spawned."""
         for handle in self._handles:
             handle.terminate()
+
+    def _bound_to_harness(self, spec: AgentSpec) -> None:
+        """Refuse, before minting, to spawn an agent whose requested scopes
+        exceed its declared harness type. No-op when the spec names no harness
+        or the team has no registry (harness stays an optional label)."""
+        if not spec.harness or self._harnesses is None:
+            return
+        try:
+            preset = self._harnesses.preset(spec.harness)
+        except KeyError as exc:
+            raise ProvisioningError(str(exc)) from None
+        extra = frozenset(spec.scopes) - preset
+        if extra:
+            raise ProvisioningError(
+                f"agent {spec.name!r} requests scopes {sorted(extra)} outside its "
+                f"harness {spec.harness!r} (allowed: {sorted(preset)}); widen the "
+                "harness or narrow the spec"
+            )

@@ -104,9 +104,10 @@ It only ever uses its own token and its own vault slots. A `Harness` type is a *
 | **researcher** | `{search:read, web:fetch}` | `run_worker` | read-only; no outward-effecting scopes |
 | **messenger** | `{chat:write}` | `run_worker` | narrow outward effect; often no model at all |
 
-Spawning selects the harness: `AgentSpec.harness` becomes a lookup key into a registry that resolves the
-preset (and the guard asserts the requested scopes are a subset of it), picks the runtime, and passes
-the harness type to the launched process. hallpass stays model-provider-agnostic — a thin `ModelClient`
+Spawning selects the harness: `AgentSpec.harness` is a lookup key into a `HarnessRegistry` that resolves
+the preset — shipped in v1.12.0, where a `Team` bounds each spawn to `scopes ⊆ preset` before minting
+(the preset also feeds the runtime and model-tier choice, which follow). Combined with the guard, an
+agent's actual scopes are provably within its harness type's ceiling. hallpass stays model-provider-agnostic — a thin `ModelClient`
 seam lives outside the core, behind an optional extra, the way the httpx and JWKS clients already defer
 their imports.
 
