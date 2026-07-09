@@ -47,14 +47,20 @@ uv run --group dev --with mypy mypy --strict src
 CI runs all of these plus `python scripts/gen_catalog.py --check`, so a stale
 catalog doc fails the build.
 
+The whole system, layer by layer, is mapped in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —
+read it first if you are changing anything beyond a connector.
+
 ## Bar for changes
 
 Same as the rest of hallpass: deny by default where it is a boundary, a test
 for anything with a security property, `mypy --strict`, and no secret in any
-log or error. A connector needs at least one real, correct endpoint; prefer a
-few correct ones over many guessed. Custom-typed request bodies or non-REST
-services (GraphQL, form-encoded) may need a hand-written connector rather than
-a catalog declaration; see `docs/IDEAS.md`.
+log or error. This bar applies to the coordination layers (channels,
+orchestration, routing, queue, spawning) exactly as it does to the auth core —
+each isolation property ships as a test that names the failure it prevents, or
+the boundary quietly drifts. A connector needs at least one real, correct
+endpoint; prefer a few correct ones over many guessed. Custom-typed request
+bodies or non-REST services (GraphQL, form-encoded) may need a hand-written
+connector rather than a catalog declaration; see `docs/IDEAS.md`.
 
 ## Writing a connector as code
 

@@ -1,13 +1,22 @@
 [project]
 name = "hallpass"
-version = "1.10.0"
-description = "Multi-user auth core for MCP servers: per-user OAuth, encrypted credential vault, scope-gated tools."
+version = "1.10.1"
+description = "Auth-native substrate for multi-agent organizations: per-agent identity, scope-as-capability, coordination gated by one core."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Jacob Malm" }]
-keywords = ["mcp", "oauth", "multi-user", "authorization", "agents"]
+keywords = [
+    "mcp",
+    "oauth",
+    "multi-user",
+    "authorization",
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "agent-identity",
+]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",

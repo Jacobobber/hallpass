@@ -1,10 +1,18 @@
-"""hallpass: the multi-user auth core public MCP servers are missing.
+"""hallpass: an auth-native substrate for organizing fleets of agents.
 
-Per-user OAuth 2.1 resource-server verification against any OIDC
-provider, an encrypted per-user credential vault, and scope-derived tool
-gating that is enforced at call time, not just in the catalog. Transport
-comes last: the core is protocol-agnostic and the MCP wiring is a thin
-adapter.
+One idea runs the whole stack. The verify-and-gate that decides whether a
+caller may make a tool call is the same decision that governs who an agent
+may message, who may be spawned with what capability, and who may pull which
+task -- so an organization of agents is the auth layer expressed at fleet
+scale. Every agent is its own identity, a capability is a scope set, and
+who-can-do-what is enforced at call time and recorded in one audit trail.
+
+The core is OAuth 2.1 resource-server verification, an encrypted per-subject
+credential vault, and scope-derived tool gating (enforced at call time, not
+just in the catalog); the coordination layer (channels, orchestration,
+routing, a durable queue, scoped spawning) rides the same identity and scope
+model. Transport comes last: the core is protocol-agnostic and the MCP wiring
+is a thin adapter. See docs/ARCHITECTURE.md for the map.
 """
 
 from . import catalog, flex
@@ -73,7 +81,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.10.0"
+__version__ = "1.10.1"
 
 __all__ = [
     "A2ABus",
