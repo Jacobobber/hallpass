@@ -35,10 +35,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from .identity import TokenVerifier, VerificationError
+
 __all__ = [
     "AgentSpec",
     "AgentContext",
     "AgentHandle",
+    "ProvisioningError",
+    "ProvisioningGuard",
     "Spawner",
     "SubprocessSpawner",
     "Team",
@@ -96,6 +100,65 @@ class AgentContext:
             task=source[ENV_TASK],
             channel=source[ENV_CHANNEL],
         )
+
+
+class ProvisioningError(Exception):
+    """A minted agent token failed the provisioning guard: it is not a scoped
+    service identity for exactly this agent. Raised BEFORE launch, so a
+    misprovisioned agent never runs."""
+
+
+@dataclass(frozen=True)
+class ProvisioningGuard:
+    """Verify, before launch, that a spawned agent is what it claims: a service
+    identity, whose subject is the agent's own name, carrying exactly the
+    harness scopes and no more.
+
+    hallpass already makes an agent structurally unable to read another
+    subject's credential (the vault is keyed by subject). The gap that leaves is
+    provisioning: nothing stops a ``mint`` callable from signing a *human's*
+    subject, or a user-kind token, or a widened scope set — and any of those
+    would let a spawned agent act with an identity that is not its own. The
+    guard closes that gap by checking the minted token against the same verifier
+    the server uses, and refusing to launch if it is not this agent's own scoped
+    service identity. It turns "the operator must provision honestly" into a
+    checked invariant."""
+
+    verifier: TokenVerifier
+    require_service: bool = True
+
+    def check(self, spec: AgentSpec, token: str) -> None:
+        """Raise ``ProvisioningError`` unless ``token`` verifies as a service
+        principal whose subject is ``spec.name`` and whose scopes are exactly
+        ``spec.scopes``. Set ``require_service=False`` only to deliberately opt
+        out of the service-kind requirement."""
+        try:
+            principal = self.verifier.verify(token)
+        except VerificationError as exc:
+            raise ProvisioningError(
+                f"minted token for agent {spec.name!r} does not verify "
+                f"({type(exc).__name__}); the minter must issue a token this "
+                "server's verifier accepts"
+            ) from None
+        if principal.subject != spec.name:
+            raise ProvisioningError(
+                f"minted token subject {principal.subject!r} does not match agent "
+                f"name {spec.name!r}: an agent must act as itself, never as "
+                "another subject (this is the human-impersonation path)"
+            )
+        if self.require_service and not principal.is_service:
+            raise ProvisioningError(
+                f"agent {spec.name!r} was minted a user-kind token: spawned "
+                "agents must be service identities. Configure the verifier's "
+                "service_claim/service_values and mint a service token (or pass "
+                "require_service=False to opt out deliberately)"
+            )
+        if principal.scopes != frozenset(spec.scopes):
+            raise ProvisioningError(
+                f"minted scopes {sorted(principal.scopes)} do not match the "
+                f"declared harness {sorted(spec.scopes)} for agent {spec.name!r}: "
+                "the minter must grant exactly the harness scopes, no more"
+            )
 
 
 class AgentHandle(Protocol):
@@ -158,18 +221,28 @@ class Team:
         mint: Callable[[str, frozenset[str]], str],
         spawner: Spawner,
         channel: str,
+        guard: ProvisioningGuard | None = None,
     ) -> None:
         self._mint = mint
         self._spawner = spawner
         self._channel = channel
+        # When set, each minted token is verified against the guard before the
+        # agent is launched; a token that is not this agent's own scoped service
+        # identity raises ProvisioningError and nothing is spawned.
+        self._guard = guard
         self._handles: list[AgentHandle] = []
 
     def spawn(
         self, spec: AgentSpec, *, extra_env: Mapping[str, str] | None = None
     ) -> AgentHandle:
         """Provision the agent (mint its scoped token) and launch it. The agent
-        receives its name, token, task, and channel by environment."""
+        receives its name, token, task, and channel by environment. If a
+        ``ProvisioningGuard`` was given, the minted token is checked before
+        launch and a misprovisioned agent raises ``ProvisioningError`` instead
+        of starting."""
         token = self._mint(spec.name, spec.scopes)
+        if self._guard is not None:
+            self._guard.check(spec, token)
         env = {
             ENV_NAME: spec.name,
             ENV_TOKEN: token,

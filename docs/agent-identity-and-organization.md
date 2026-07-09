@@ -28,12 +28,13 @@ one user from reading another's credential; agents are just more subjects.
 
 There is exactly **one** way to break it, and it is a provisioning mistake, not a design gap: if the
 operator's minter signs a token with the *human's* subject, or vaults the *human's* API key under the
-agent's subject, then the agent really would act as the human. hallpass cannot detect a minter that
-lies about the subject — today it trusts the operator to provision honestly. Closing that is the first
-thing on the roadmap (the **provisioning guard**, below): a check that runs before launch and asserts
-the minted token is service-kind, its subject equals the agent's name, and its scopes equal the
-declared harness. That converts "the operator must not misprovision" from a caveat into an enforced
-invariant.
+agent's subject, then the agent really would act as the human. That path is now closed by the
+**`ProvisioningGuard`** (`agents.py`, shipped in v1.11.0): given to a `Team`, it verifies each minted
+token against the same verifier the server uses and refuses to launch — raising `ProvisioningError`
+*before* the process starts — unless the token is a **service** principal whose **subject equals the
+agent's name** and whose **scopes are exactly the declared harness**. That converts "the operator must
+not misprovision" from a caveat into a checked invariant: an agent minted the human's subject, a
+user-kind token, or a widened grant never runs.
 
 The deeper point is the one the guard makes structural: **an agent must carry its own API keys, never
 ride a human's harness.** A "harness" that reuses a human's authenticated session (the human's `gh`
@@ -69,12 +70,14 @@ key rotation is a vault upsert; OAuth-backed keys self-heal. *Revocation:* kill 
 TTLs mean the token stops verifying without a revocation list), `disconnect` the downstream tokens, burn
 the model slot, terminate the process. Every step is audited through the same sink.
 
-**Enforcement to add (roadmap):** a `ProvisioningGuard` on the spawn path (service-kind, subject ==
-name, scopes == harness preset, preset ⊆ its parent's authority); an optional `require_service` flag so
-agent-only tools refuse a human token even if one leaks; and a clean human-vs-service separation where
-the *only* structural link between a human and an agent is that the human provisions it. Effort:
-small-to-medium, and it changes nothing in the security spine — the core still just verifies whatever
-token arrives.
+**Enforcement — shipped and next.** The `ProvisioningGuard` above is built (v1.11.0): service-kind,
+subject == name, scopes == exactly the harness, with a `require_service` opt-out for deliberate
+user-kind cases — and it changes nothing in the security spine, since the core still just verifies
+whatever token arrives. Still on the roadmap: sub-delegation bounds (a parent may mint a child only
+within `preset ⊆ its own authority`), and an optional per-tool `require_service` so agent-only tools
+refuse a human token even if one leaks. The clean human-vs-service separation — where the *only*
+structural link between a human and an agent is that the human provisions it — is what the guard's
+subject-equals-name check enforces.
 
 ## Custom harnesses
 
