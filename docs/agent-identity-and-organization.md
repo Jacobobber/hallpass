@@ -48,7 +48,10 @@ the actor truthfully.
 
 Every agent is its own **service principal** (machine-to-machine, `is_service` true), minted via a
 client-credentials flow with least privilege — the scopes it carries *are* its entire grant, there is
-no ambient authority. An agent has three credential planes, and all three are the agent's own:
+no ambient authority. `ClientCredentialsMinter` (shipped v1.13.0) is that flow: one OAuth client per
+agent, exchanged for a scoped service token at the IdP's token endpoint, so the token is issued *to the
+agent* — never a shared secret, never a human's. An agent has three credential planes, and all three
+are the agent's own:
 
 | Plane | What | Where it lives | Who reads it |
 |---|---|---|---|

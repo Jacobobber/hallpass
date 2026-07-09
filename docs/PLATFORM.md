@@ -86,10 +86,12 @@ presets, agent rotate/revoke/reap, self-registration.
 refuses to launch an agent that is not its own scoped **service** identity (subject == name, scopes ==
 harness), closing the one misprovisioning path by which a spawned agent could act with a human's
 identity; `dev_app` mints service tokens and exposes the app's verifier so it works out of the box.
-And **harness presets** (`Harness` / `HarnessRegistry`, v1.12.0) — `AgentSpec.harness` resolves to a
+**harness presets** (`Harness` / `HarnessRegistry`, v1.12.0) — `AgentSpec.harness` resolves to a
 declared preset and an agent's scopes are bounded to it before minting, so an agent type's capability
-ceiling is declared once. *Next in the phase:* minter-as-service (IdP client-credentials),
-rotate/revoke/reap, self-registration.
+ceiling is declared once. And **minter-as-service** (`AgentMinter` / `ClientCredentialsMinter`,
+v1.13.0) — each agent obtains its *own* service token from the IdP's client-credentials grant (one
+OAuth client per agent), so "own identity, own keys" is a production code path, not a dev signer.
+*Next in the phase:* agent rotate/revoke/reap, self-registration.
 *Milestone:* an agent boots, obtains its *own* service credential from the IdP (no dev minter, no
 operator token), self-registers, runs a task under its scoped harness, and can be rotated and revoked
 out of band — all audited.
