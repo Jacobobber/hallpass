@@ -119,8 +119,12 @@ in-memory and durable. **Phase 2 is done — the next block is P3 enterprise bac
 decides, the decision is attributable and durable, and an author cannot approve its own work — each
 with a named test.
 
-**Phase 3 — Enterprise backends.** Redis cross-cuts + shared A2A policies first, then the Postgres
-backend for the coordination stores, then the vault backend seam + shared/KMS-per-org vault.
+**Phase 3 — Enterprise backends (in progress).** Redis cross-cuts + shared A2A policies first, then the
+Postgres backend for the coordination stores, then the vault backend seam + shared/KMS-per-org vault.
+*Landed:* **Redis cross-cuts** (`RedisIdempotencyStore` / `RedisRateLimiter`, v1.21.0) — shared
+idempotency and per-subject rate limiting behind the existing protocols, the correctness gate before
+any fan-out; optional `redis` extra, deferred import, fake-tested. *Next in the phase:* shared A2A
+channel-policy store, the vault backend seam, and the Postgres backend for `A2ABus`/`TaskQueue`.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 

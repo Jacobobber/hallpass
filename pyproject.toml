@@ -1,6 +1,6 @@
 [project]
 name = "hallpass"
-version = "1.20.0"
+version = "1.21.0"
 description = "Auth-native substrate for multi-agent organizations: per-agent identity, scope-as-capability, coordination gated by one core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,6 +39,8 @@ dependencies = [
 mcp = ["mcp>=1.9"]
 http = ["httpx>=0.27"]
 connectors = ["httpx>=0.27"]
+redis = ["redis>=5"]
+postgres = ["psycopg[binary]>=3.1"]
 
 [project.urls]
 Repository = "https://github.com/Jacobobber/hallpass"
@@ -58,3 +60,10 @@ packages = ["src/hallpass"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+# Optional backends (the redis/postgres extras) are imported lazily inside the
+# functions that need them; their stubs are not installed in the type-check env.
+[[tool.mypy.overrides]]
+module = ["redis.*", "psycopg.*"]
+ignore_missing_imports = true

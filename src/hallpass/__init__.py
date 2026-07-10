@@ -90,6 +90,7 @@ from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStor
 from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
 from .taskqueue import LeasedTask, TaskQueue
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
+from .redis_backends import RedisIdempotencyStore, RedisLike, RedisRateLimiter
 from .sanitize import frame_untrusted, sanitize
 from .rest import (
     BreakerPolicy,
@@ -111,7 +112,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 
 __all__ = [
     "A2ABus",
@@ -180,6 +181,9 @@ __all__ = [
     "Result",
     "RateLimited",
     "RateLimiter",
+    "RedisIdempotencyStore",
+    "RedisLike",
+    "RedisRateLimiter",
     "RestConnector",
     "RestService",
     "RetryPolicy",
