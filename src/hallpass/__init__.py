@@ -118,9 +118,15 @@ from .runner import QueueHandler, run_worker, serve_queue
 from .search import LexicalRanker, ToolRanker, tokenize
 from .server import build, dev_app
 from .toolkit import ToolKit
-from .vault import CredentialVault, VaultError
+from .vault import (
+    CredentialVault,
+    InMemoryVaultBackend,
+    SqliteVaultBackend,
+    VaultBackend,
+    VaultError,
+)
 
-__version__ = "1.22.0"
+__version__ = "1.23.0"
 
 __all__ = [
     "A2ABus",
@@ -176,6 +182,7 @@ __all__ = [
     "InMemoryPendingStore",
     "InMemoryRoleStore",
     "InMemorySeatLedger",
+    "InMemoryVaultBackend",
     "JwksSource",
     "LeasedTask",
     "LexicalRanker",
@@ -213,6 +220,7 @@ __all__ = [
     "SqlitePendingStore",
     "SqliteRoleStore",
     "SqliteSeatLedger",
+    "SqliteVaultBackend",
     "Spawner",
     "StaticJwks",
     "SubprocessSpawner",
@@ -231,6 +239,7 @@ __all__ = [
     "TRUNCATED_KEY",
     "UnknownTool",
     "UserContext",
+    "VaultBackend",
     "VaultError",
     "Worker",
     "VerificationError",
