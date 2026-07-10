@@ -123,8 +123,11 @@ with a named test.
 Postgres backend for the coordination stores, then the vault backend seam + shared/KMS-per-org vault.
 *Landed:* **Redis cross-cuts** (`RedisIdempotencyStore` / `RedisRateLimiter`, v1.21.0) — shared
 idempotency and per-subject rate limiting behind the existing protocols, the correctness gate before
-any fan-out; optional `redis` extra, deferred import, fake-tested. *Next in the phase:* shared A2A
-channel-policy store, the vault backend seam, and the Postgres backend for `A2ABus`/`TaskQueue`.
+any fan-out; optional `redis` extra, deferred import, fake-tested. And a **shared A2A channel-policy
+store** (`ChannelPolicyStore` / `SqliteChannelPolicyStore`, v1.22.0) — channel authorization moved out
+of the per-process dict into a store two buses can share, so a channel declared once is authorized
+identically across replicas. *Next in the phase:* the vault backend seam, and the Postgres backend for
+`A2ABus`/`TaskQueue`.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 

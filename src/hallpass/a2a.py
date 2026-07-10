@@ -28,12 +28,21 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from .audit import AuditEvent, AuditSink
 from .identity import Principal
 from .sanitize import sanitize
 
-__all__ = ["ChannelPolicy", "ChannelDenied", "A2AMessage", "A2ABus"]
+__all__ = [
+    "ChannelPolicy",
+    "ChannelDenied",
+    "ChannelPolicyStore",
+    "InMemoryChannelPolicyStore",
+    "SqliteChannelPolicyStore",
+    "A2AMessage",
+    "A2ABus",
+]
 
 
 class ChannelDenied(Exception):
@@ -92,6 +101,96 @@ CREATE INDEX IF NOT EXISTS idx_a2a_presence_channel_seen
 """
 
 
+class ChannelPolicyStore(Protocol):
+    """Where a bus keeps its channel policies. The default is per-process
+    (`InMemoryChannelPolicyStore`); a shared one (`SqliteChannelPolicyStore` or
+    another backend) keeps channel authorization identical across replicas,
+    instead of each replica having to re-declare every channel and 404ing on any
+    it hasn't."""
+
+    def declare(self, channel: str, policy: ChannelPolicy) -> None: ...
+    def get(self, channel: str) -> ChannelPolicy | None: ...
+    def channels(self) -> list[str]: ...
+
+
+class InMemoryChannelPolicyStore:
+    """Per-process channel policies (the bus default). Thread-safe, not shared:
+    behind a load balancer each replica needs the same channels declared."""
+
+    def __init__(self) -> None:
+        self._policies: dict[str, ChannelPolicy] = {}
+        self._lock = threading.Lock()
+
+    def declare(self, channel: str, policy: ChannelPolicy) -> None:
+        with self._lock:
+            self._policies[channel] = policy
+
+    def get(self, channel: str) -> ChannelPolicy | None:
+        with self._lock:
+            return self._policies.get(channel)
+
+    def channels(self) -> list[str]:
+        with self._lock:
+            return sorted(self._policies)
+
+
+class SqliteChannelPolicyStore:
+    """Durable, shared channel policies backed by SQLite, so a channel declared
+    once is visible to every bus that points at the same store -- channel
+    authorization no longer diverges across replicas. Pass a file ``path`` to
+    share; ``:memory:`` is a single-process fallback."""
+
+    def __init__(self, *, path: str = ":memory:") -> None:
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        with self._lock, self._conn:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_policies ("
+                " channel TEXT PRIMARY KEY, post_scopes TEXT NOT NULL,"
+                " read_scopes TEXT NOT NULL)"
+            )
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def declare(self, channel: str, policy: ChannelPolicy) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO a2a_policies (channel, post_scopes, read_scopes)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(channel) DO UPDATE SET"
+                " post_scopes = excluded.post_scopes,"
+                " read_scopes = excluded.read_scopes",
+                (
+                    channel,
+                    " ".join(sorted(policy.post_scopes)),
+                    " ".join(sorted(policy.read_scopes)),
+                ),
+            )
+
+    def get(self, channel: str) -> ChannelPolicy | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT post_scopes, read_scopes FROM a2a_policies WHERE channel = ?",
+                (channel,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ChannelPolicy(
+            post_scopes=frozenset(row[0].split()),
+            read_scopes=frozenset(row[1].split()),
+        )
+
+    def channels(self) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT channel FROM a2a_policies ORDER BY channel"
+            ).fetchall()
+        return [r[0] for r in rows]
+
+
 class A2ABus:
     """Durable, per-principal-authorized agent-to-agent channels.
 
@@ -106,8 +205,12 @@ class A2ABus:
         path: str = ":memory:",
         audit: AuditSink | None = None,
         sanitize_reads: bool = True,
+        policies: ChannelPolicyStore | None = None,
     ) -> None:
-        self._policies: dict[str, ChannelPolicy] = {}
+        # Channel policies default to a per-process store; pass a shared one
+        # (SqliteChannelPolicyStore) so authorization is identical across
+        # replicas. Only the messages/cursors/presence live in this bus's DB.
+        self._policies: ChannelPolicyStore = policies or InMemoryChannelPolicyStore()
         self._audit = audit
         # Bodies are written by other principals; on read they land in a
         # reader's (often a model's) context. Neutralise control/escape
@@ -129,13 +232,11 @@ class A2ABus:
     def declare_channel(self, name: str, policy: ChannelPolicy) -> None:
         """Register a channel and the scopes it requires. Re-declaring
         replaces the policy; existing messages are untouched."""
-        with self._lock:
-            self._policies[name] = policy
+        self._policies.declare(name, policy)
 
     @property
     def channels(self) -> list[str]:
-        with self._lock:
-            return sorted(self._policies)
+        return self._policies.channels()
 
     # -- authorization -----------------------------------------------------
 

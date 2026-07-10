@@ -16,7 +16,15 @@ is a thin adapter. See docs/ARCHITECTURE.md for the map.
 """
 
 from . import catalog, flex
-from .a2a import A2ABus, A2AMessage, ChannelDenied, ChannelPolicy
+from .a2a import (
+    A2ABus,
+    A2AMessage,
+    ChannelDenied,
+    ChannelPolicy,
+    ChannelPolicyStore,
+    InMemoryChannelPolicyStore,
+    SqliteChannelPolicyStore,
+)
 from .agents import (
     AgentContext,
     AgentHandle,
@@ -112,7 +120,7 @@ from .server import build, dev_app
 from .toolkit import ToolKit
 from .vault import CredentialVault, VaultError
 
-__version__ = "1.21.0"
+__version__ = "1.22.0"
 
 __all__ = [
     "A2ABus",
@@ -130,6 +138,7 @@ __all__ = [
     "BreakerPolicy",
     "ChannelDenied",
     "ChannelPolicy",
+    "ChannelPolicyStore",
     "CircuitBreakerHttpClient",
     "CircuitOpen",
     "ClientCredentialsMinter",
@@ -159,6 +168,7 @@ __all__ = [
     "IdempotencyStore",
     "InMemoryApprovalLedger",
     "InMemoryAuditLog",
+    "InMemoryChannelPolicyStore",
     "InMemoryConsentLedger",
     "InMemoryDelegationLedger",
     "InMemoryHumanGateLedger",
@@ -196,6 +206,7 @@ __all__ = [
     "SeatLedger",
     "SqliteApprovalLedger",
     "SqliteAuditLog",
+    "SqliteChannelPolicyStore",
     "SqliteConsentLedger",
     "SqliteDelegationLedger",
     "SqliteHumanGateLedger",
