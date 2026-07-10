@@ -96,7 +96,13 @@ from .oauth import (
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
 from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
 from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
-from .taskqueue import LeasedTask, TaskQueue
+from .taskqueue import (
+    InMemoryTaskQueueBackend,
+    LeasedTask,
+    SqliteTaskQueueBackend,
+    TaskQueue,
+    TaskQueueBackend,
+)
 from .ratelimit import FixedWindowRateLimiter, RateLimited, RateLimiter
 from .redis_backends import RedisIdempotencyStore, RedisLike, RedisRateLimiter
 from .sanitize import frame_untrusted, sanitize
@@ -126,7 +132,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.23.0"
+__version__ = "1.24.0"
 
 __all__ = [
     "A2ABus",
@@ -182,6 +188,7 @@ __all__ = [
     "InMemoryPendingStore",
     "InMemoryRoleStore",
     "InMemorySeatLedger",
+    "InMemoryTaskQueueBackend",
     "InMemoryVaultBackend",
     "JwksSource",
     "LeasedTask",
@@ -220,12 +227,14 @@ __all__ = [
     "SqlitePendingStore",
     "SqliteRoleStore",
     "SqliteSeatLedger",
+    "SqliteTaskQueueBackend",
     "SqliteVaultBackend",
     "Spawner",
     "StaticJwks",
     "SubprocessSpawner",
     "Task",
     "TaskQueue",
+    "TaskQueueBackend",
     "Team",
     "TokenHttp",
     "TokenRefresher",
