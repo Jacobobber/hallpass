@@ -38,9 +38,10 @@ def test_taskqueue_claim_uses_index_not_scan(tmp_path):
         if i % 4 == 0:
             q.claim("w")
             q.complete(tid, ok=True)
-    assert "idx_tasks_status_created" in _index_names(q._conn)
+    conn = q._backend._conn  # the queue delegates storage to a SQLite backend
+    assert "idx_tasks_status_created" in _index_names(conn)
     plan = _plan(
-        q._conn,
+        conn,
         "SELECT id, do, args, note FROM tasks"
         " WHERE status = 'pending' OR (status = 'leased' AND leased_at < ?)"
         " ORDER BY created_at LIMIT 1",
@@ -104,13 +105,14 @@ def test_wal_enabled_on_file_backed_stores(tmp_path):
     from cryptography.fernet import Fernet
 
     vault = CredentialVault(Fernet.generate_key(), path=str(tmp_path / "v.db"))
+    queue = TaskQueue(path=str(tmp_path / "tq.db"))
     stores = [
-        TaskQueue(path=str(tmp_path / "tq.db")),
         SqliteAuditLog(path=str(tmp_path / "au.db")),
         A2ABus(path=str(tmp_path / "a2a.db")),
         SqlitePendingStore(path=str(tmp_path / "pend.db")),
-        # the vault delegates storage to a backend; the connection lives there
+        # the vault and queue delegate storage to a backend; the conn lives there
         vault._backend,
+        queue._backend,
     ]
     try:
         for s in stores:

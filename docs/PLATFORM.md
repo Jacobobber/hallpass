@@ -129,8 +129,16 @@ of the per-process dict into a store two buses can share, so a channel declared 
 identically across replicas. And the **vault backend seam** (`VaultBackend` /
 `SqliteVaultBackend`, v1.23.0) — the biggest single lift: `CredentialVault` keeps the Fernet
 encryption and delegates ciphertext storage to a backend, so credentials can move to a shared DB / KMS
-without widening the trust boundary (the backend only ever sees ciphertext). *Next in the phase:* the
-Postgres backend for `A2ABus`/`TaskQueue` — then Phase 3 is complete.
+without widening the trust boundary (the backend only ever sees ciphertext). And the **task-queue
+backend seam** (`TaskQueueBackend` / `SqliteTaskQueueBackend`, v1.24.0) — `TaskQueue` is a facade over
+a backend, exactly-once proven under thread contention over both backends; the interface documents the
+Postgres `SELECT … FOR UPDATE SKIP LOCKED` claim.
+
+*What's left of Phase 3:* the **concrete Postgres backends** (queue + vault + channel policies) and an
+**A2ABus message-log backend seam**. Every store now sits behind a swappable interface and the Redis
+cross-cuts ship, so hallpass is multi-replica *capable*; writing and CI-testing a real Postgres backend
+needs a running Postgres (not available in the build environment here), so it stays the documented,
+operator-supplied piece — each interface names exactly how a Postgres implementation satisfies it.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 
