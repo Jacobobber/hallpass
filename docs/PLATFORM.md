@@ -126,8 +126,11 @@ idempotency and per-subject rate limiting behind the existing protocols, the cor
 any fan-out; optional `redis` extra, deferred import, fake-tested. And a **shared A2A channel-policy
 store** (`ChannelPolicyStore` / `SqliteChannelPolicyStore`, v1.22.0) — channel authorization moved out
 of the per-process dict into a store two buses can share, so a channel declared once is authorized
-identically across replicas. *Next in the phase:* the vault backend seam, and the Postgres backend for
-`A2ABus`/`TaskQueue`.
+identically across replicas. And the **vault backend seam** (`VaultBackend` /
+`SqliteVaultBackend`, v1.23.0) — the biggest single lift: `CredentialVault` keeps the Fernet
+encryption and delegates ciphertext storage to a backend, so credentials can move to a shared DB / KMS
+without widening the trust boundary (the backend only ever sees ciphertext). *Next in the phase:* the
+Postgres backend for `A2ABus`/`TaskQueue` — then Phase 3 is complete.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 

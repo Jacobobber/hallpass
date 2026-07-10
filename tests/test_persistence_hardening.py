@@ -103,12 +103,14 @@ def test_wal_enabled_on_file_backed_stores(tmp_path):
     writer. (WAL is a no-op on :memory:, which is why this uses files.)"""
     from cryptography.fernet import Fernet
 
+    vault = CredentialVault(Fernet.generate_key(), path=str(tmp_path / "v.db"))
     stores = [
         TaskQueue(path=str(tmp_path / "tq.db")),
         SqliteAuditLog(path=str(tmp_path / "au.db")),
         A2ABus(path=str(tmp_path / "a2a.db")),
         SqlitePendingStore(path=str(tmp_path / "pend.db")),
-        CredentialVault(Fernet.generate_key(), path=str(tmp_path / "v.db")),
+        # the vault delegates storage to a backend; the connection lives there
+        vault._backend,
     ]
     try:
         for s in stores:
