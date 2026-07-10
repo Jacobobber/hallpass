@@ -45,3 +45,32 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
       - run: uv run --group dev pytest -q
+
+  postgres:
+    # The Postgres backends are integration-tested against a real Postgres --
+    # the FOR UPDATE SKIP LOCKED exactly-once claim can only be proven against a
+    # real engine. The default `test` job skips these (no DATABASE_URL); this
+    # job supplies one via a service container.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: hallpass
+          POSTGRES_DB: hallpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - run: uv run --group dev --with "psycopg[binary]>=3.1" pytest tests/test_postgres_backends.py -q
+        env:
+          HALLPASS_TEST_DATABASE_URL: postgresql://postgres:hallpass@127.0.0.1:5432/hallpass

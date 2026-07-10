@@ -94,6 +94,11 @@ from .oauth import (
     TokenHttp,
 )
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
+from .postgres_backends import (
+    PostgresChannelPolicyStore,
+    PostgresTaskQueueBackend,
+    PostgresVaultBackend,
+)
 from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
 from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
 from .taskqueue import (
@@ -132,7 +137,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.24.0"
+__version__ = "1.25.0"
 
 __all__ = [
     "A2ABus",
@@ -198,6 +203,9 @@ __all__ = [
     "OAuthProvider",
     "Orchestrator",
     "PendingStore",
+    "PostgresChannelPolicyStore",
+    "PostgresTaskQueueBackend",
+    "PostgresVaultBackend",
     "Principal",
     "ProvisioningError",
     "ProvisioningGuard",

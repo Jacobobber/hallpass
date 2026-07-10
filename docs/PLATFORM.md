@@ -134,11 +134,17 @@ backend seam** (`TaskQueueBackend` / `SqliteTaskQueueBackend`, v1.24.0) — `Tas
 a backend, exactly-once proven under thread contention over both backends; the interface documents the
 Postgres `SELECT … FOR UPDATE SKIP LOCKED` claim.
 
-*What's left of Phase 3:* the **concrete Postgres backends** (queue + vault + channel policies) and an
-**A2ABus message-log backend seam**. Every store now sits behind a swappable interface and the Redis
-cross-cuts ship, so hallpass is multi-replica *capable*; writing and CI-testing a real Postgres backend
-needs a running Postgres (not available in the build environment here), so it stays the documented,
-operator-supplied piece — each interface names exactly how a Postgres implementation satisfies it.
+And the **concrete Postgres backends** (`PostgresTaskQueueBackend` /
+`PostgresChannelPolicyStore` / `PostgresVaultBackend`, v1.25.0) — the queue's claim uses `FOR UPDATE
+SKIP LOCKED`, integration-tested against a real Postgres 16 (a CI `postgres` service job runs them on
+every push; the default suite skips them without a `DATABASE_URL`). So a fleet points the queue, the
+channel policies, and the vault at Postgres and the Redis cross-cuts at Redis, and runs multi-replica.
+
+**Phase 3 is substantially done:** Redis cross-cuts, every store behind a swappable seam, and Postgres
+backends for the queue / channel policies / vault, all tested. The one remaining extension is a
+**Postgres backend for the A2ABus message log** (messages / cursors / presence) — a larger refactor of
+the monotonic-seq + forward-only-cursor code; the A2A *authorization* already shares across replicas
+via the channel-policy store, so this is the message-durability piece, tracked for its own increment.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 
