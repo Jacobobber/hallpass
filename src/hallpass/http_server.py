@@ -6,9 +6,16 @@ operations over HTTP with bearer auth, so the per-user gating can be exercised
 with `curl` instead of a test harness. The MCP adapter (``hallpass.mcp_adapter``)
 is the path for real MCP transport; this is the plain-HTTP demonstrator.
 
-    GET  /healthz            -> {"status": "ok"}                 (no auth)
+    GET  /healthz            -> {"status": "ok"}                 (no auth; liveness)
+    GET  /readyz             -> {"status": ..., "checks": {...}} (no auth; readiness, 503 if not)
     GET  /tools              -> {"tools": [...]}                 (bearer -> the caller's catalog)
     POST /call/<tool>        -> {"result": ...}                  (bearer; body: {"arguments": {...}})
+
+``/healthz`` is liveness (the process answers); ``/readyz`` is readiness (its
+backends answer) and returns 503 when a dependency is unreachable, so a load
+balancer drains a replica whose database is down instead of routing to it. The
+readiness body carries only per-component ``ok``/``error`` — never a host or
+secret.
 
 The request handling is a pure function (``handle_request``) so it is tested
 without opening a socket; ``serve`` is the thin ``http.server`` wrapper around
@@ -62,6 +69,15 @@ def handle_request(
     contains the bearer or a credential."""
     if method == "GET" and path == "/healthz":
         return 200, {"status": "ok"}
+
+    if method == "GET" and path == "/readyz":
+        ready, checks = app.check_readiness()
+        # 503 so a load balancer stops routing to a replica that cannot serve;
+        # the body names only which component is degraded, never why in detail.
+        return (200 if ready else 503), {
+            "status": "ready" if ready else "not ready",
+            "checks": checks,
+        }
 
     if method == "GET" and path == "/tools":
         try:

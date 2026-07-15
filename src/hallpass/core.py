@@ -108,6 +108,35 @@ class Hallpass:
         """Whether connected credentials survive a restart (see the vault)."""
         return self._vault.durable
 
+    def check_readiness(self) -> tuple[bool, dict[str, str]]:
+        """A dependency probe for a load balancer's *readiness* check, distinct
+        from liveness (the process is up). Does a trivial real round-trip to the
+        credential vault's backend, and to the idempotency store if one is wired,
+        so a replica whose shared database or cache is unreachable reports NOT
+        ready instead of accepting traffic it cannot serve. Never raises, and the
+        result never contains a host, DSN, or secret — only per-component
+        ``"ok"``/``"error"``."""
+        checks: dict[str, str] = {}
+        ready = True
+        try:
+            # A query that touches the backend but returns nothing sensitive:
+            # an unused subject has no services. Proves the backend answers.
+            self._vault.services("")
+            checks["vault"] = "ok"
+        except Exception:  # noqa: BLE001 - readiness must degrade, not raise
+            checks["vault"] = "error"
+            ready = False
+        if self._idempotency is not None:
+            try:
+                # Read-only: a lookup that misses, so it never writes a counter
+                # or a result (unlike the rate limiter's INCR).
+                self._idempotency.get("__readyz__", "__readyz__", "__readyz__")
+                checks["idempotency"] = "ok"
+            except Exception:  # noqa: BLE001 - readiness must degrade, not raise
+                checks["idempotency"] = "error"
+                ready = False
+        return ready, checks
+
     def _record(
         self,
         action: str,

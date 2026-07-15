@@ -243,3 +243,26 @@ def test_pg_a2a_shared_message_log_across_buses(tmp_path):
     assert bus_a.catch_up(reader, "build") == []
     bus_a.close()
     bus_b.close()
+
+
+# -- build(database_url=...) wiring ----------------------------------------
+
+
+def test_pg_build_database_url_wires_durable_vault():
+    """build(database_url=...) -- the path 'hallpass serve' takes from
+    HALLPASS_DATABASE_URL -- puts the credential vault on Postgres: durable,
+    and readiness reports the backend answering."""
+    from hallpass import StaticJwks, build
+
+    _reset("credentials")
+    app = build(
+        issuer="i",
+        audience="a",
+        jwks=StaticJwks({"keys": []}),
+        vault_key=None,  # a real deployment sets HALLPASS_VAULT_KEY; ephemeral here
+        database_url=DSN,
+    )
+    assert app.vault_durable is True
+    ready, checks = app.check_readiness()
+    assert ready is True and checks["vault"] == "ok"
+    app.close()
