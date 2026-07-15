@@ -78,6 +78,10 @@ The scalability of the substrate today, from a real audit (concurrency measured,
      is the one stateful store with no injectable-backend seam today (only its file path is
      configurable). Do it as its own deliberate change.
 
+  All four have since landed (Phase 3, v1.21.0–v1.27.0): Redis idempotency + rate limiting, the shared
+  channel-policy store, Postgres backends for the queue / vault / A2A message log (the last two behind
+  new seams), each concurrency-sensitive one integration-tested against a real Postgres in CI.
+
 ## Phased roadmap
 
 **Phase 1 — Identity hardening + Harness SDK. ✅ Complete (v1.11.0–v1.15.0).**
@@ -119,7 +123,7 @@ in-memory and durable. **Phase 2 is done — the next block is P3 enterprise bac
 decides, the decision is attributable and durable, and an author cannot approve its own work — each
 with a named test.
 
-**Phase 3 — Enterprise backends (in progress).** Redis cross-cuts + shared A2A policies first, then the
+**Phase 3 — Enterprise backends. ✅ Complete (v1.21.0–v1.27.0).** Redis cross-cuts + shared A2A policies first, then the
 Postgres backend for the coordination stores, then the vault backend seam + shared/KMS-per-org vault.
 *Landed:* **Redis cross-cuts** (`RedisIdempotencyStore` / `RedisRateLimiter`, v1.21.0) — shared
 idempotency and per-subject rate limiting behind the existing protocols, the correctness gate before
@@ -140,11 +144,18 @@ SKIP LOCKED`, integration-tested against a real Postgres 16 (a CI `postgres` ser
 every push; the default suite skips them without a `DATABASE_URL`). So a fleet points the queue, the
 channel policies, and the vault at Postgres and the Redis cross-cuts at Redis, and runs multi-replica.
 
-**Phase 3 is substantially done:** Redis cross-cuts, every store behind a swappable seam, and Postgres
-backends for the queue / channel policies / vault, all tested. The one remaining extension is a
-**Postgres backend for the A2ABus message log** (messages / cursors / presence) — a larger refactor of
-the monotonic-seq + forward-only-cursor code; the A2A *authorization* already shares across replicas
-via the channel-policy store, so this is the message-durability piece, tracked for its own increment.
+And the last store moved onto a shared database: the **A2A message-log seam** (`A2AStore` /
+`SqliteA2AStore` / `InMemoryA2AStore`, v1.26.0) followed by the **`PostgresA2AStore`** (v1.27.0). The
+bus keeps authorization / audit / sanitization; the store keeps the two invariants — a monotonic,
+gap-free per-channel sequence and a forward-only cursor. The Postgres backend assigns the sequence
+under a **per-channel advisory lock** (`pg_advisory_xact_lock`), so `MAX(seq)+1` is race-free across
+replicas without serializing unrelated channels; integration-tested against a real Postgres 16 with 8
+threads on 8 connections posting 200 messages to one channel, asserted gap-free `1..200`.
+
+**Phase 3 is complete:** Redis cross-cuts, every coordination and credential store behind a swappable
+seam, and Postgres backends for the queue / channel policies / vault / A2A message log — all tested,
+the concurrency-sensitive ones against a real Postgres in CI. A fleet points every store at a shared
+database and runs multi-replica.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 
