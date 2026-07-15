@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -72,27 +73,69 @@ class StaticJwks:
 
 class HttpJwks:
     """JWKS over HTTPS with a TTL cache. force_refresh bypasses the cache
-    (used once on unknown kid, to pick up rotated keys)."""
+    (used once on unknown kid, to pick up rotated keys).
 
-    def __init__(self, url: str, *, ttl_seconds: float = 300.0) -> None:
+    Stale-on-error: if a refresh fails (an IdP blip, a 5xx, a timeout) but a
+    previously-fetched document is cached, the stale document is served rather
+    than raising. Signing keys rotate slowly and overlap, so a slightly stale
+    JWKS still verifies every token signed by a still-published key; failing
+    instead would break verification across the whole fleet for a transient
+    dependency outage. Only a cold cache (never fetched) re-raises. After a
+    failed refresh, retries are throttled to ``error_retry_seconds`` so a
+    verification storm during an outage does not hammer the IdP or block each
+    call on the fetch timeout. This is also why readiness must not gate on a
+    live JWKS fetch."""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        ttl_seconds: float = 300.0,
+        error_retry_seconds: float = 30.0,
+        now: Callable[[], float] | None = None,
+    ) -> None:
         self._url = url
         self._ttl = ttl_seconds
+        self._error_retry = error_retry_seconds
+        self._now = now or time.monotonic
         self._lock = threading.Lock()
         self._cached: dict[str, Any] | None = None
         self._fetched_at = 0.0
+        self._last_attempt = 0.0
+        self._last_ok = True
 
     def get(self, *, force_refresh: bool = False) -> dict[str, Any]:
         with self._lock:
-            fresh = time.monotonic() - self._fetched_at < self._ttl
+            now = self._now()
+            fresh = now - self._fetched_at < self._ttl
             if self._cached is not None and fresh and not force_refresh:
+                return self._cached
+            # A refresh is due. If the last attempt failed recently, serve the
+            # stale document without re-fetching, so an ongoing outage neither
+            # hammers the IdP nor blocks every verify on the fetch timeout.
+            if (
+                self._cached is not None
+                and not self._last_ok
+                and now - self._last_attempt < self._error_retry
+            ):
                 return self._cached
             import httpx  # deferred: core installs work without httpx
 
-            response = httpx.get(self._url, timeout=10.0)
-            response.raise_for_status()
-            document: dict[str, Any] = response.json()
+            self._last_attempt = now
+            try:
+                response = httpx.get(self._url, timeout=10.0)
+                response.raise_for_status()
+                document: dict[str, Any] = response.json()
+            except Exception:
+                # Refresh failed. Serve the last good document if we have one;
+                # only a cold cache has nothing to fall back on.
+                self._last_ok = False
+                if self._cached is not None:
+                    return self._cached
+                raise
             self._cached = document
-            self._fetched_at = time.monotonic()
+            self._fetched_at = self._now()
+            self._last_ok = True
             return document
 
 
