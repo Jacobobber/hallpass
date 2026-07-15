@@ -36,6 +36,7 @@ class Hallpass:
         rate_limiter: RateLimiter | None = None,
         ranker: ToolRanker | None = None,
         idempotency: IdempotencyStore | None = None,
+        readiness_ttl: float = 5.0,
     ) -> None:
         self._verifier = verifier
         self._vault = vault
@@ -46,6 +47,11 @@ class Hallpass:
         self._gate = ToolGate()
         self._services: dict[str, str] = {}  # tool name -> connector service
         self._unavailable: list[str] = []  # services skipped as unavailable
+        # Readiness does a real backend round-trip; cache it briefly so an
+        # unauthenticated /readyz flood cannot open a DB connection per hit
+        # (a pre-auth amplifier). ttl<=0 disables the cache.
+        self._readiness_ttl = readiness_ttl
+        self._readiness_cache: tuple[float, bool, dict[str, str]] | None = None
 
     def add_connector(self, connector: Connector) -> None:
         """Register a connector's tools. A connector may optionally
@@ -115,7 +121,12 @@ class Hallpass:
         so a replica whose shared database or cache is unreachable reports NOT
         ready instead of accepting traffic it cannot serve. Never raises, and the
         result never contains a host, DSN, or secret — only per-component
-        ``"ok"``/``"error"``."""
+        ``"ok"``/``"error"``. The result is cached for ``readiness_ttl`` seconds
+        so a burst of probes does not open a backend connection per request."""
+        if self._readiness_ttl > 0 and self._readiness_cache is not None:
+            cached_at, ready_c, checks_c = self._readiness_cache
+            if time.monotonic() - cached_at < self._readiness_ttl:
+                return ready_c, dict(checks_c)
         checks: dict[str, str] = {}
         ready = True
         try:
@@ -135,6 +146,7 @@ class Hallpass:
             except Exception:  # noqa: BLE001 - readiness must degrade, not raise
                 checks["idempotency"] = "error"
                 ready = False
+        self._readiness_cache = (time.monotonic(), ready, dict(checks))
         return ready, checks
 
     def _record(

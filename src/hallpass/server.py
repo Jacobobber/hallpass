@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+import warnings
 from collections.abc import Callable, Iterable
 
 from cryptography.fernet import Fernet
@@ -76,6 +77,29 @@ def build(
         service_claim=service_claim,
         service_values=service_values,
     )
+    if database_url and not vault_key:
+        # A shared Postgres vault holds ciphertext; if each replica generated its
+        # own ephemeral Fernet key, replica A's writes would be undecryptable on
+        # replica B (VaultError) -- silent credential corruption. Fail closed:
+        # a shared vault requires a stable key. This is fatal regardless of any
+        # "allow ephemeral" escape hatch.
+        raise ValueError(
+            "database_url is set but vault_key is not. A shared vault needs a "
+            "stable key (set HALLPASS_VAULT_KEY) or each replica mints a "
+            "different Fernet key and cannot read another replica's credentials."
+        )
+    if database_url and not redis_url:
+        # The vault is shared but idempotency/rate-limiting stay per-process,
+        # which is wrong for more than one replica (a retry on another replica
+        # re-runs the mutation; the per-subject budget becomes N x the cap).
+        # A single-node durable-vault deployment is legitimate, so warn rather
+        # than fail; the multi-replica topology guard lives in the deploy layer.
+        warnings.warn(
+            "database_url without redis_url: the vault is shared but idempotency "
+            "and rate limiting are per-process. Set redis_url for a multi-replica "
+            "deployment, or ignore this on a single node.",
+            stacklevel=2,
+        )
     key = vault_key or Fernet.generate_key()
     if database_url:
         # Deferred so a core install without the postgres extra is unaffected.

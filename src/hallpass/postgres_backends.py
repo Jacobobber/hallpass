@@ -40,7 +40,9 @@ def _default_ids() -> str:
 def _connect(dsn: str) -> Any:
     import psycopg
 
-    return psycopg.connect(dsn)
+    # A bounded connect so an unreachable database fails fast (a crash-looping
+    # pod an orchestrator can restart) instead of hanging the request or boot.
+    return psycopg.connect(dsn, connect_timeout=10)
 
 
 class PostgresTaskQueueBackend:

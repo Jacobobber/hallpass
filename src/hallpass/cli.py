@@ -73,6 +73,20 @@ def _app_from_env() -> Hallpass:
             "missing required env: " + ", ".join(missing) + " (or pass --dev)"
         )
     assert issuer and audience and jwks_url
+    # A token is a service (machine) principal when it carries this claim=value;
+    # without it every token reads as human and the human-gate's service refusal
+    # never fires (a machine token could clear a gate meant for a person).
+    service_claim = os.environ.get("HALLPASS_SERVICE_CLAIM") or None
+    service_values = frozenset(
+        os.environ.get("HALLPASS_SERVICE_VALUES", "").replace(",", " ").split()
+    )
+    if service_claim and not service_values:
+        raise SystemExit(
+            "HALLPASS_SERVICE_CLAIM is set but HALLPASS_SERVICE_VALUES is empty:"
+            " no token would ever be recognized as a service principal, so the"
+            " human-gate's service refusal is silently disabled. Set the value(s)"
+            " (e.g. 'client-credentials') or unset the claim."
+        )
     return build(
         issuer=issuer,
         audience=audience,
@@ -81,6 +95,8 @@ def _app_from_env() -> Hallpass:
         database_url=os.environ.get("HALLPASS_DATABASE_URL"),
         redis_url=os.environ.get("HALLPASS_REDIS_URL"),
         rate_limit=_parse_rate_limit(os.environ.get("HALLPASS_RATE_LIMIT")),
+        service_claim=service_claim,
+        service_values=service_values,
         connectors=catalog_mod.load_all(),
     )
 
@@ -119,6 +135,19 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     host = args.host or os.environ.get("HALLPASS_HOST", "127.0.0.1")
     port = args.port or int(os.environ.get("HALLPASS_PORT", "8000"))
+    if args.dev and (
+        os.environ.get("HALLPASS_DATABASE_URL")
+        or host not in ("127.0.0.1", "localhost", "::1")
+    ):
+        # --dev wires a self-signed minter that will sign a token for ANY
+        # subject and scopes; reachable in production it makes every token
+        # (including admin scopes) forgeable. Refuse when a production signal
+        # is present: a shared database, or a bind address other than loopback.
+        raise SystemExit(
+            "refusing 'serve --dev' with a production signal present"
+            f" (HALLPASS_DATABASE_URL set or non-loopback host {host!r}):"
+            " the dev minter forges tokens for any subject. Run without --dev."
+        )
     if args.dev:
         app, token = dev_app(connectors=catalog_mod.load_all())
         demo = token("demo-user", ["github:read"])
