@@ -142,7 +142,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.31.0"
+__version__ = "1.32.0"
 
 __all__ = [
     "A2ABus",
