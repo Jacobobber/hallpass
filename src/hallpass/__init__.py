@@ -19,10 +19,13 @@ from . import catalog, flex
 from .a2a import (
     A2ABus,
     A2AMessage,
+    A2AStore,
     ChannelDenied,
     ChannelPolicy,
     ChannelPolicyStore,
+    InMemoryA2AStore,
     InMemoryChannelPolicyStore,
+    SqliteA2AStore,
     SqliteChannelPolicyStore,
 )
 from .agents import (
@@ -137,11 +140,12 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.25.0"
+__version__ = "1.26.0"
 
 __all__ = [
     "A2ABus",
     "A2AMessage",
+    "A2AStore",
     "AgentClient",
     "AgentContext",
     "AgentHandle",
@@ -183,6 +187,7 @@ __all__ = [
     "HumanGateError",
     "HumanGateLedger",
     "IdempotencyStore",
+    "InMemoryA2AStore",
     "InMemoryApprovalLedger",
     "InMemoryAuditLog",
     "InMemoryChannelPolicyStore",
@@ -226,6 +231,7 @@ __all__ = [
     "Router",
     "Seat",
     "SeatLedger",
+    "SqliteA2AStore",
     "SqliteApprovalLedger",
     "SqliteAuditLog",
     "SqliteChannelPolicyStore",
