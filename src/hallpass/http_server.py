@@ -192,4 +192,9 @@ def serve(
             # hitting stderr.)
             return
 
-    return ThreadingHTTPServer((host, port), _Handler)
+    server = ThreadingHTTPServer((host, port), _Handler)
+    # Non-daemon worker threads: on shutdown, the server joins in-flight request
+    # threads instead of the process exiting out from under them. A container or
+    # k8s stop (SIGTERM) must let a request drain, not cut it mid-flight.
+    server.daemon_threads = False
+    return server

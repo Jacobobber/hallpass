@@ -27,8 +27,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
+import threading
 from collections.abc import Sequence
+from typing import Any
 
 from . import catalog as catalog_mod
 from .audit import AuditSink, SqliteAuditLog
@@ -186,14 +189,41 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         shared = "redis" if os.environ.get("HALLPASS_REDIS_URL") else "in-process"
         print(f"hallpass on http://{host}:{port}  (vault: {vault}, shared: {shared})")
     server = serve(app, host=host, port=port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nshutting down")
-    finally:
-        server.shutdown()
-        app.close()
+    _serve_until_signal(server, app)
     return 0
+
+
+def _serve_until_signal(
+    server: Any,
+    app: Hallpass,
+    *,
+    install_signals: bool = True,
+    stop: threading.Event | None = None,
+) -> None:
+    """Run the server until SIGINT or SIGTERM, then shut down gracefully.
+
+    Containers and k8s stop a process with SIGTERM, not SIGINT, so both must
+    trigger the same clean path: stop accepting, let in-flight requests drain
+    (the server runs non-daemon worker threads), then release the app's
+    resources. The accept loop runs on a background thread so the signal,
+    delivered to the main thread, sets the stop event without racing it."""
+    stop = stop or threading.Event()
+
+    def _graceful(_signum: int, _frame: object) -> None:
+        stop.set()
+
+    if install_signals:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, _graceful)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        stop.wait()
+    finally:
+        print("\nshutting down")
+        server.shutdown()  # stop accepting; joins draining worker threads
+        server.server_close()
+        app.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
