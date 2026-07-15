@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from .a2a import ChannelPolicy
+from .a2a import ChannelPolicy, StoredMessage
 from .orchestrator import Result
 from .taskqueue import LeasedTask
 
@@ -29,6 +29,7 @@ __all__ = [
     "PostgresTaskQueueBackend",
     "PostgresChannelPolicyStore",
     "PostgresVaultBackend",
+    "PostgresA2AStore",
 ]
 
 
@@ -265,3 +266,129 @@ class PostgresVaultBackend:
                 (subject,),
             ).fetchall()
         return [r[0] for r in rows]
+
+
+class PostgresA2AStore:
+    """Shared A2A message log / cursors / presence on Postgres, so every
+    replica's ``A2ABus`` reads and writes one durable message log.
+
+    The one thing a shared log must get right is the per-channel sequence:
+    under many replicas posting at once, two appends must never land on the
+    same seq. ``append`` takes a **per-channel advisory lock**
+    (``pg_advisory_xact_lock``) for the duration of the insert transaction, so
+    the ``MAX(seq)+1`` is computed and committed under serialization —
+    monotonic and gap-free without locking the whole table or serializing
+    unrelated channels. ``advance_cursor`` uses ``GREATEST`` in the upsert to
+    stay forward-only. Presence is a last-seen upsert that ages off by
+    timestamp. Connection-per-operation (a pool is the production
+    optimization)."""
+
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
+        with _connect(dsn) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_messages ("
+                " channel TEXT NOT NULL, seq BIGINT NOT NULL, sender TEXT NOT NULL,"
+                " body TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL,"
+                " PRIMARY KEY (channel, seq))"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_cursors ("
+                " subject TEXT NOT NULL, channel TEXT NOT NULL,"
+                " acked_seq BIGINT NOT NULL DEFAULT 0,"
+                " PRIMARY KEY (subject, channel))"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS a2a_presence ("
+                " channel TEXT NOT NULL, subject TEXT NOT NULL,"
+                " last_seen DOUBLE PRECISION NOT NULL,"
+                " PRIMARY KEY (channel, subject))"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_a2a_presence_channel_seen"
+                " ON a2a_presence(channel, last_seen)"
+            )
+            conn.commit()
+
+    def close(self) -> None:
+        pass
+
+    def append(self, channel: str, sender: str, body: str, created_at: float) -> int:
+        with _connect(self._dsn) as conn:
+            # Serialize appends to THIS channel only, for the length of the
+            # transaction, so MAX(seq)+1 is race-free across connections. The
+            # lock releases on commit; other channels are unaffected.
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (channel,)
+            )
+            row = conn.execute(
+                "INSERT INTO a2a_messages (channel, seq, sender, body, created_at)"
+                " VALUES (%s,"
+                "  (SELECT COALESCE(MAX(seq), 0) + 1 FROM a2a_messages WHERE channel=%s),"
+                "  %s, %s, %s) RETURNING seq",
+                (channel, channel, sender, body, created_at),
+            ).fetchone()
+            conn.commit()
+        return int(row[0])
+
+    def read_after(
+        self, channel: str, after_seq: int, limit: int
+    ) -> list[StoredMessage]:
+        with _connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT seq, sender, body, created_at FROM a2a_messages"
+                " WHERE channel=%s AND seq>%s ORDER BY seq LIMIT %s",
+                (channel, after_seq, limit),
+            ).fetchall()
+        return [
+            (int(s), sender, body, float(created)) for s, sender, body, created in rows
+        ]
+
+    def head(self, channel: str) -> int:
+        with _connect(self._dsn) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM a2a_messages WHERE channel=%s",
+                (channel,),
+            ).fetchone()
+        return int(row[0])
+
+    def cursor(self, subject: str, channel: str) -> int:
+        with _connect(self._dsn) as conn:
+            row = conn.execute(
+                "SELECT acked_seq FROM a2a_cursors WHERE subject=%s AND channel=%s",
+                (subject, channel),
+            ).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def advance_cursor(self, subject: str, channel: str, up_to: int) -> int:
+        with _connect(self._dsn) as conn:
+            row = conn.execute(
+                "INSERT INTO a2a_cursors (subject, channel, acked_seq)"
+                " VALUES (%s, %s, %s)"
+                " ON CONFLICT (subject, channel) DO UPDATE SET"
+                " acked_seq = GREATEST(a2a_cursors.acked_seq, EXCLUDED.acked_seq)"
+                " RETURNING acked_seq",
+                (subject, channel, up_to),
+            ).fetchone()
+            conn.commit()
+        return int(row[0])
+
+    def touch_presence(self, channel: str, subject: str, at: float) -> None:
+        with _connect(self._dsn) as conn:
+            conn.execute(
+                "INSERT INTO a2a_presence (channel, subject, last_seen)"
+                " VALUES (%s, %s, %s)"
+                " ON CONFLICT (channel, subject) DO UPDATE SET"
+                " last_seen = EXCLUDED.last_seen",
+                (channel, subject, at),
+            )
+            conn.commit()
+
+    def roster(self, channel: str, since: float) -> list[str]:
+        with _connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT subject FROM a2a_presence"
+                " WHERE channel=%s AND last_seen>=%s ORDER BY subject",
+                (channel, since),
+            ).fetchall()
+        return [str(r[0]) for r in rows]

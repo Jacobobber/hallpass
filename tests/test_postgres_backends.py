@@ -153,3 +153,93 @@ def test_pg_vault_backend():
     assert v2.fetch("alice", "github") == "PLAINTEXT_SECRET"
     assert vault.delete("alice", "github") is True
     assert v2.fetch("alice", "github") is None
+
+
+# -- A2A message log -------------------------------------------------------
+
+
+def _fresh_a2a_store():
+    from hallpass import PostgresA2AStore
+
+    _reset("a2a_messages", "a2a_cursors", "a2a_presence")
+    return PostgresA2AStore(DSN)
+
+
+def test_pg_a2a_store_roundtrip():
+    store = _fresh_a2a_store()
+    assert store.append("build", "orch", "one", 1.0) == 1
+    assert store.append("build", "orch", "two", 2.0) == 2
+    assert store.append("ops", "orch", "a", 3.0) == 1  # seq is per channel
+    assert store.head("build") == 2 and store.head("ops") == 1
+    msgs = store.read_after("build", 0, 100)
+    assert [(m[0], m[2]) for m in msgs] == [(1, "one"), (2, "two")]
+    assert store.read_after("build", 1, 100) == msgs[1:]
+
+
+def test_pg_a2a_cursor_is_forward_only():
+    store = _fresh_a2a_store()
+    assert store.cursor("w", "c") == 0
+    assert store.advance_cursor("w", "c", 5) == 5
+    assert store.advance_cursor("w", "c", 2) == 5  # stale ack cannot regress
+    assert store.cursor("w", "c") == 5
+    assert store.cursor("other", "c") == 0  # per (subject, channel)
+
+
+def test_pg_a2a_presence_ages_off():
+    store = _fresh_a2a_store()
+    store.touch_presence("c", "alice", 100.0)
+    store.touch_presence("c", "bob", 100.0)
+    assert store.roster("c", 50.0) == ["alice", "bob"]
+    assert store.roster("c", 150.0) == []
+    store.touch_presence("c", "alice", 200.0)  # refresh
+    assert store.roster("c", 150.0) == ["alice"]
+
+
+def test_pg_a2a_append_monotonic_under_concurrency():
+    """The payoff for the shared log: 8 threads, each on its own connection,
+    hammer one channel; the per-channel advisory lock must keep the sequence
+    monotonic and gap-free (no two posts share a seq, none skipped)."""
+    store = _fresh_a2a_store()
+    n = 200
+    barrier = threading.Barrier(8)
+    seqs: list[int] = []
+    guard = threading.Lock()
+
+    def poster(base: int) -> None:
+        barrier.wait()
+        for i in range(n // 8):
+            seq = store.append("hot", f"w{base}", f"m{base}-{i}", float(i))
+            with guard:
+                seqs.append(seq)
+
+    threads = [threading.Thread(target=poster, args=(b,)) for b in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert len(seqs) == n
+    assert len(set(seqs)) == n  # none collided
+    assert sorted(seqs) == list(range(1, n + 1))  # gap-free 1..n
+    assert store.head("hot") == n
+
+
+def test_pg_a2a_shared_message_log_across_buses(tmp_path):
+    """Two buses on one Postgres message log see each other's messages and
+    share the read cursor -- a stand-in for two replicas on shared storage."""
+    from hallpass import A2ABus, ChannelPolicy, PostgresA2AStore, Principal
+
+    _reset("a2a_messages", "a2a_cursors", "a2a_presence")
+    policy = ChannelPolicy(post_scopes=frozenset({"w"}), read_scopes=frozenset({"r"}))
+    bus_a = A2ABus(store=PostgresA2AStore(DSN))
+    bus_b = A2ABus(store=PostgresA2AStore(DSN))
+    for bus in (bus_a, bus_b):
+        bus.declare_channel("build", policy)  # policies per-bus here
+    bus_a.post(Principal("orch", frozenset({"w"})), "build", "task")
+    reader = Principal("worker", frozenset({"r"}))
+    got = bus_b.catch_up(reader, "build")
+    assert [m.body for m in got] == ["task"]
+    bus_b.ack(reader, "build", got[-1].seq)
+    # the ack is durable in the shared log, so bus_a sees nothing to redeliver
+    assert bus_a.catch_up(reader, "build") == []
+    bus_a.close()
+    bus_b.close()
