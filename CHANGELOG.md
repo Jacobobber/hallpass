@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.30.0]
+
+- **Durable, central audit trail (`PostgresAuditLog`) + audit wired into `serve`** — the adversarial deploy review's sharpest finding: in a multi-replica deployment the audit trail was per-pod SQLite on ephemeral disk (fragmented across the fleet, lost on restart), *and* a production `hallpass serve` wired no audit sink at all — so a governance system's own decision record was neither central nor durable. `PostgresAuditLog` puts every authorization decision in one shared Postgres table, same `AuditSink` protocol and `query` shape as `SqliteAuditLog` (newest-first, filter by subject/tool/decision/action/since), records never carrying a token/claim/credential. `_app_from_env` now selects the sink to follow the vault: `HALLPASS_DATABASE_URL` → shared Postgres audit (central across replicas), else `HALLPASS_AUDIT_PATH` → a local SQLite trail, else none — closing the "prod serve records nothing" gap. Integration-tested against a real Postgres 16 (records + filtered queries + durability across a fresh instance, i.e. a second replica); the audit sink is wired on the actual `serve` path (`app.has_audit`). Additive.
+
 ## [1.29.0]
 
 - **Deployment-config hardening** — a safety pass over the 1.28 config surface, from an adversarial design review of "hallpass as an internal service." Closes real footguns before the container/compose work builds on them:

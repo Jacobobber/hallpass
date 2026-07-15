@@ -22,6 +22,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .a2a import ChannelPolicy, StoredMessage
+from .audit import AuditEvent
 from .orchestrator import Result
 from .taskqueue import LeasedTask
 
@@ -30,6 +31,7 @@ __all__ = [
     "PostgresChannelPolicyStore",
     "PostgresVaultBackend",
     "PostgresA2AStore",
+    "PostgresAuditLog",
 ]
 
 
@@ -394,3 +396,97 @@ class PostgresA2AStore:
                 (channel, since),
             ).fetchall()
         return [str(r[0]) for r in rows]
+
+
+class PostgresAuditLog:
+    """A durable, queryable audit sink on Postgres, so the authorization trail
+    is one shared, central record across every replica -- not per-pod SQLite on
+    ephemeral disk, which fragments across the fleet and is lost on restart. In
+    a governance system the audit trail IS the product surface an incident is
+    reviewed from, so it must outlive any one replica. Same ``AuditSink``
+    protocol and ``query`` shape as ``SqliteAuditLog``; records never carry the
+    token, a claim value, or a credential."""
+
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
+        with _connect(dsn) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS audit ("
+                " id BIGSERIAL PRIMARY KEY,"
+                " subject TEXT NOT NULL, action TEXT NOT NULL,"
+                " decision TEXT NOT NULL, tool TEXT, reason TEXT NOT NULL,"
+                " at DOUBLE PRECISION NOT NULL, duration_ms DOUBLE PRECISION)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit(subject)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit(tool)")
+            conn.commit()
+
+    def close(self) -> None:
+        pass
+
+    def record(self, event: AuditEvent) -> None:
+        with _connect(self._dsn) as conn:
+            conn.execute(
+                "INSERT INTO audit"
+                " (subject, action, decision, tool, reason, at, duration_ms)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (
+                    event.subject,
+                    event.action,
+                    event.decision,
+                    event.tool,
+                    event.reason,
+                    event.at,
+                    event.duration_ms,
+                ),
+            )
+            conn.commit()
+
+    def query(
+        self,
+        *,
+        subject: str | None = None,
+        tool: str | None = None,
+        decision: str | None = None,
+        action: str | None = None,
+        since: float | None = None,
+        limit: int = 100,
+    ) -> list[AuditEvent]:
+        """Matching events, newest first. Every filter is optional and ANDed;
+        ``since`` is a lower bound on ``at`` (Unix seconds)."""
+        clauses = []
+        params: list[object] = []
+        for column, value in (
+            ("subject", subject),
+            ("tool", tool),
+            ("decision", decision),
+            ("action", action),
+        ):
+            if value is not None:
+                clauses.append(f"{column} = %s")
+                params.append(value)
+        if since is not None:
+            clauses.append("at >= %s")
+            params.append(since)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(max(limit, 0))
+        with _connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT subject, action, decision, tool, reason, at, duration_ms"
+                f" FROM audit{where} ORDER BY id DESC LIMIT %s",
+                params,
+            ).fetchall()
+        return [
+            AuditEvent(
+                subject=r[0],
+                action=r[1],
+                decision=r[2],
+                tool=r[3],
+                reason=r[4],
+                at=r[5],
+                duration_ms=r[6],
+            )
+            for r in rows
+        ]
