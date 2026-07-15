@@ -245,6 +245,47 @@ def test_pg_a2a_shared_message_log_across_buses(tmp_path):
     bus_b.close()
 
 
+# -- audit log -------------------------------------------------------------
+
+
+def test_pg_audit_log_records_and_queries():
+    """The audit trail on Postgres: one central, durable record. Newest-first,
+    filterable, and it survives a fresh instance (a different replica)."""
+    from hallpass import PostgresAuditLog
+    from hallpass.audit import AuditEvent
+
+    _reset("audit")
+    log = PostgresAuditLog(DSN)
+    log.record(
+        AuditEvent(
+            subject="alice", action="call_tool", decision="allow", tool="ping", at=1.0
+        )
+    )
+    log.record(
+        AuditEvent(
+            subject="bob",
+            action="call_tool",
+            decision="deny",
+            tool="ping",
+            reason="not_authorized",
+            at=2.0,
+        )
+    )
+    log.record(
+        AuditEvent(subject="alice", action="list_tools", decision="allow", at=3.0)
+    )
+    # newest first
+    allrows = log.query()
+    assert [e.at for e in allrows] == [3.0, 2.0, 1.0]
+    # filters AND together
+    assert [e.subject for e in log.query(subject="alice")] == ["alice", "alice"]
+    assert [e.decision for e in log.query(decision="deny")] == ["deny"]
+    assert [e.at for e in log.query(since=2.0)] == [3.0, 2.0]
+    # durable across a fresh instance (as a second replica would see it)
+    log2 = PostgresAuditLog(DSN)
+    assert len(log2.query()) == 3
+
+
 # -- build(database_url=...) wiring ----------------------------------------
 
 

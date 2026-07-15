@@ -99,6 +99,7 @@ from .oauth import (
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
 from .postgres_backends import (
     PostgresA2AStore,
+    PostgresAuditLog,
     PostgresChannelPolicyStore,
     PostgresTaskQueueBackend,
     PostgresVaultBackend,
@@ -141,7 +142,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.29.0"
+__version__ = "1.30.0"
 
 __all__ = [
     "A2ABus",
@@ -210,6 +211,7 @@ __all__ = [
     "Orchestrator",
     "PendingStore",
     "PostgresA2AStore",
+    "PostgresAuditLog",
     "PostgresChannelPolicyStore",
     "PostgresTaskQueueBackend",
     "PostgresVaultBackend",

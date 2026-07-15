@@ -15,6 +15,7 @@ Production `serve`/`doctor` read config from the environment:
     HALLPASS_DATABASE_URL                                   (optional; Postgres -> shared vault)
     HALLPASS_REDIS_URL                                      (optional; Redis -> shared idempotency + rate limit)
     HALLPASS_RATE_LIMIT                                     (optional; "max/window_seconds", e.g. "120/60")
+    HALLPASS_AUDIT_PATH                                     (optional; SQLite audit file when no DATABASE_URL)
     HALLPASS_HOST, HALLPASS_PORT                            (optional)
 
 Set HALLPASS_DATABASE_URL and HALLPASS_REDIS_URL to run multiple replicas
@@ -30,6 +31,7 @@ import sys
 from collections.abc import Sequence
 
 from . import catalog as catalog_mod
+from .audit import AuditSink, SqliteAuditLog
 from .core import Hallpass
 from .diagnostics import doctor, format_report
 from .search import LexicalRanker
@@ -87,18 +89,36 @@ def _app_from_env() -> Hallpass:
             " human-gate's service refusal is silently disabled. Set the value(s)"
             " (e.g. 'client-credentials') or unset the claim."
         )
+    database_url = os.environ.get("HALLPASS_DATABASE_URL")
     return build(
         issuer=issuer,
         audience=audience,
         jwks_url=jwks_url,
         vault_key=os.environ.get("HALLPASS_VAULT_KEY"),
-        database_url=os.environ.get("HALLPASS_DATABASE_URL"),
+        database_url=database_url,
         redis_url=os.environ.get("HALLPASS_REDIS_URL"),
         rate_limit=_parse_rate_limit(os.environ.get("HALLPASS_RATE_LIMIT")),
         service_claim=service_claim,
         service_values=service_values,
+        audit=_audit_from_env(database_url),
         connectors=catalog_mod.load_all(),
     )
+
+
+def _audit_from_env(database_url: str | None) -> AuditSink | None:
+    """Pick a durable audit sink so a production ``serve`` records its decisions
+    (it wired none before): shared Postgres when ``database_url`` is set, so the
+    authorization trail is one central record across replicas rather than per-pod
+    files lost on restart; else a local SQLite file if ``HALLPASS_AUDIT_PATH`` is
+    set; else none."""
+    if database_url:
+        from .postgres_backends import PostgresAuditLog
+
+        return PostgresAuditLog(database_url)
+    path = os.environ.get("HALLPASS_AUDIT_PATH")
+    if path:
+        return SqliteAuditLog(path=path)
+    return None
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
