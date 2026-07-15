@@ -5,6 +5,7 @@ shell over the library so the CLI can't drift from it:
 
     hallpass serve --dev            # a live demo server + a ready token + curl
     hallpass serve                  # production: configured from env (see below)
+    hallpass migrate                # provision the Postgres schema once (init Job)
     hallpass doctor [--dev]         # config self-check; exits non-zero on an error
     hallpass catalog list           # every connector and its tool count
     hallpass catalog search "..."   # rank catalog tools by a query
@@ -133,6 +134,23 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if any(f.level == "error" for f in findings) else 0
 
 
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    """Provision the Postgres schema once (an init container / migration Job),
+    so replicas boot against tables that already exist instead of racing each
+    other's CREATE on a 0->N scale-up."""
+    dsn = os.environ.get("HALLPASS_DATABASE_URL")
+    if not dsn:
+        raise SystemExit(
+            "hallpass migrate needs HALLPASS_DATABASE_URL (the Postgres a"
+            " multi-replica deployment shares). Nothing to migrate on SQLite."
+        )
+    from .postgres_backends import migrate
+
+    version = migrate(dsn)
+    print(f"hallpass schema provisioned at version {version}")
+    return 0
+
+
 def _cmd_catalog(args: argparse.Namespace) -> int:
     if args.action == "list":
         for name in catalog_mod.names():
@@ -245,6 +263,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dev", action="store_true", help="check a self-signed dev app"
     )
     p_doctor.set_defaults(func=_cmd_doctor)
+
+    p_migrate = sub.add_parser(
+        "migrate", help="provision the Postgres schema (run once before scaling)"
+    )
+    p_migrate.set_defaults(func=_cmd_migrate)
 
     p_cat = sub.add_parser("catalog", help="browse the connector catalog")
     cat_sub = p_cat.add_subparsers(dest="action", required=True)

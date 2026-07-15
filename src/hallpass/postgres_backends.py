@@ -32,6 +32,9 @@ __all__ = [
     "PostgresVaultBackend",
     "PostgresA2AStore",
     "PostgresAuditLog",
+    "migrate",
+    "schema_version",
+    "SCHEMA_VERSION",
 ]
 
 
@@ -45,6 +48,29 @@ def _connect(dsn: str) -> Any:
     # A bounded connect so an unreachable database fails fast (a crash-looping
     # pod an orchestrator can restart) instead of hanging the request or boot.
     return psycopg.connect(dsn, connect_timeout=10)
+
+
+# The current schema revision. `hallpass migrate` records it; bump it when a
+# future change needs more than an idempotent CREATE ... IF NOT EXISTS.
+SCHEMA_VERSION = 1
+
+# A stable key so every backend's CREATE TABLE/INDEX serializes against every
+# other's across all replicas. Without it, N pods booting 0->N issue concurrent
+# DDL on the same catalog and Postgres can raise "tuple concurrently updated".
+_DDL_LOCK_KEY = 0x48505F44  # "HP_D"
+
+
+def _ensure_schema(dsn: str, statements: list[str]) -> None:
+    """Run idempotent DDL under a transaction-scoped advisory lock, so
+    concurrent constructor DDL across replicas is serialized (the lock releases
+    automatically at commit). ``CREATE ... IF NOT EXISTS`` under this lock is
+    safe on a 0->N scale-up; `hallpass migrate` is the explicit one-shot, but a
+    bare constructor is still race-free."""
+    with _connect(dsn) as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (_DDL_LOCK_KEY,))
+        for stmt in statements:
+            conn.execute(stmt)
+        conn.commit()
 
 
 class PostgresTaskQueueBackend:
@@ -63,21 +89,20 @@ class PostgresTaskQueueBackend:
         self._dsn = dsn
         self._now = now or time.time
         self._ids = ids
-        with _connect(dsn) as conn:
-            conn.execute(
+        _ensure_schema(
+            dsn,
+            [
                 "CREATE TABLE IF NOT EXISTS tasks ("
                 # "do" is a reserved word in Postgres (unlike SQLite) -> quote it
                 ' id TEXT PRIMARY KEY, "do" TEXT NOT NULL, args TEXT NOT NULL,'
                 " note TEXT NOT NULL, status TEXT NOT NULL,"
                 " leased_by TEXT, leased_at DOUBLE PRECISION,"
                 " ok INTEGER, result TEXT, worker TEXT,"
-                " created_at DOUBLE PRECISION NOT NULL)"
-            )
-            conn.execute(
+                " created_at DOUBLE PRECISION NOT NULL)",
                 "CREATE INDEX IF NOT EXISTS idx_tasks_status_created"
-                " ON tasks(status, created_at)"
-            )
-            conn.commit()
+                " ON tasks(status, created_at)",
+            ],
+        )
 
     def close(self) -> None:
         pass
@@ -162,13 +187,14 @@ class PostgresChannelPolicyStore:
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        with _connect(dsn) as conn:
-            conn.execute(
+        _ensure_schema(
+            dsn,
+            [
                 "CREATE TABLE IF NOT EXISTS a2a_policies ("
                 " channel TEXT PRIMARY KEY, post_scopes TEXT NOT NULL,"
                 " read_scopes TEXT NOT NULL)"
-            )
-            conn.commit()
+            ],
+        )
 
     def close(self) -> None:
         pass
@@ -217,14 +243,15 @@ class PostgresVaultBackend:
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        with _connect(dsn) as conn:
-            conn.execute(
+        _ensure_schema(
+            dsn,
+            [
                 "CREATE TABLE IF NOT EXISTS credentials ("
                 " subject TEXT NOT NULL, service TEXT NOT NULL,"
                 " ciphertext BYTEA NOT NULL, updated_at DOUBLE PRECISION NOT NULL,"
                 " PRIMARY KEY (subject, service))"
-            )
-            conn.commit()
+            ],
+        )
 
     @property
     def durable(self) -> bool:
@@ -289,30 +316,25 @@ class PostgresA2AStore:
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        with _connect(dsn) as conn:
-            conn.execute(
+        _ensure_schema(
+            dsn,
+            [
                 "CREATE TABLE IF NOT EXISTS a2a_messages ("
                 " channel TEXT NOT NULL, seq BIGINT NOT NULL, sender TEXT NOT NULL,"
                 " body TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL,"
-                " PRIMARY KEY (channel, seq))"
-            )
-            conn.execute(
+                " PRIMARY KEY (channel, seq))",
                 "CREATE TABLE IF NOT EXISTS a2a_cursors ("
                 " subject TEXT NOT NULL, channel TEXT NOT NULL,"
                 " acked_seq BIGINT NOT NULL DEFAULT 0,"
-                " PRIMARY KEY (subject, channel))"
-            )
-            conn.execute(
+                " PRIMARY KEY (subject, channel))",
                 "CREATE TABLE IF NOT EXISTS a2a_presence ("
                 " channel TEXT NOT NULL, subject TEXT NOT NULL,"
                 " last_seen DOUBLE PRECISION NOT NULL,"
-                " PRIMARY KEY (channel, subject))"
-            )
-            conn.execute(
+                " PRIMARY KEY (channel, subject))",
                 "CREATE INDEX IF NOT EXISTS idx_a2a_presence_channel_seen"
-                " ON a2a_presence(channel, last_seen)"
-            )
-            conn.commit()
+                " ON a2a_presence(channel, last_seen)",
+            ],
+        )
 
     def close(self) -> None:
         pass
@@ -409,19 +431,18 @@ class PostgresAuditLog:
 
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        with _connect(dsn) as conn:
-            conn.execute(
+        _ensure_schema(
+            dsn,
+            [
                 "CREATE TABLE IF NOT EXISTS audit ("
                 " id BIGSERIAL PRIMARY KEY,"
                 " subject TEXT NOT NULL, action TEXT NOT NULL,"
                 " decision TEXT NOT NULL, tool TEXT, reason TEXT NOT NULL,"
-                " at DOUBLE PRECISION NOT NULL, duration_ms DOUBLE PRECISION)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit(subject)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit(tool)")
-            conn.commit()
+                " at DOUBLE PRECISION NOT NULL, duration_ms DOUBLE PRECISION)",
+                "CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit(subject)",
+                "CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit(tool)",
+            ],
+        )
 
     def close(self) -> None:
         pass
@@ -490,3 +511,45 @@ class PostgresAuditLog:
             )
             for r in rows
         ]
+
+
+def schema_version(dsn: str) -> int:
+    """The recorded schema revision, or 0 if the database has never been
+    migrated (no ``schema_version`` row)."""
+    with _connect(dsn) as conn:
+        row = conn.execute(
+            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+            if _table_exists(conn, "schema_version")
+            else "SELECT 0"
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _table_exists(conn: Any, name: str) -> bool:
+    row = conn.execute("SELECT to_regclass(%s)", (name,)).fetchone()
+    return row is not None and row[0] is not None
+
+
+def migrate(dsn: str) -> int:
+    """Provision every hallpass table on Postgres and record the schema version.
+    Idempotent, and safe to run once as an init container / migration Job before
+    scaling replicas: it creates each backend's schema under the shared advisory
+    lock, so it never races a concurrent boot. Returns the schema version now in
+    place."""
+    # Constructing each backend creates its tables (idempotent, advisory-locked).
+    PostgresTaskQueueBackend(dsn)
+    PostgresChannelPolicyStore(dsn)
+    PostgresVaultBackend(dsn)
+    PostgresA2AStore(dsn)
+    PostgresAuditLog(dsn)
+    _ensure_schema(
+        dsn, ["CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"]
+    )
+    with _connect(dsn) as conn:
+        conn.execute(
+            "INSERT INTO schema_version (version) VALUES (%s)"
+            " ON CONFLICT (version) DO NOTHING",
+            (SCHEMA_VERSION,),
+        )
+        conn.commit()
+    return SCHEMA_VERSION

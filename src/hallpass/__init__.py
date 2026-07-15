@@ -98,11 +98,14 @@ from .oauth import (
 )
 from .orchestrator import Handler, Orchestrator, Result, Router, Task, Worker
 from .postgres_backends import (
+    SCHEMA_VERSION,
     PostgresA2AStore,
     PostgresAuditLog,
     PostgresChannelPolicyStore,
     PostgresTaskQueueBackend,
     PostgresVaultBackend,
+    migrate,
+    schema_version,
 )
 from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
 from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
@@ -142,7 +145,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.32.0"
+__version__ = "1.33.0"
 
 __all__ = [
     "A2ABus",
@@ -215,6 +218,7 @@ __all__ = [
     "PostgresChannelPolicyStore",
     "PostgresTaskQueueBackend",
     "PostgresVaultBackend",
+    "SCHEMA_VERSION",
     "Principal",
     "ProvisioningError",
     "ProvisioningGuard",
@@ -280,9 +284,11 @@ __all__ = [
     "frame_untrusted",
     "guard_response",
     "join_channel",
+    "migrate",
     "open_dm",
     "run_worker",
     "sanitize",
+    "schema_version",
     "separation_of_duties",
     "serve_queue",
     "tokenize",
