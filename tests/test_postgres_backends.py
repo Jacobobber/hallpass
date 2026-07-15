@@ -286,6 +286,64 @@ def test_pg_audit_log_records_and_queries():
     assert len(log2.query()) == 3
 
 
+# -- schema migration / concurrency-safe DDL -------------------------------
+
+
+def test_pg_migrate_provisions_all_tables_and_records_version():
+    from hallpass import SCHEMA_VERSION, migrate, schema_version
+
+    _reset(
+        "tasks",
+        "a2a_policies",
+        "credentials",
+        "a2a_messages",
+        "a2a_cursors",
+        "a2a_presence",
+        "audit",
+        "schema_version",
+    )
+    assert schema_version(DSN) == 0  # never migrated
+    assert migrate(DSN) == SCHEMA_VERSION
+    assert schema_version(DSN) == SCHEMA_VERSION
+    # every table now exists (a construct against each backend is a no-op)
+    import psycopg
+
+    with psycopg.connect(DSN) as conn:
+        for table in ("tasks", "credentials", "a2a_messages", "audit"):
+            assert (
+                conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0]
+                is not None
+            )
+    # idempotent: a second run does not raise or duplicate the version row
+    assert migrate(DSN) == SCHEMA_VERSION
+    with psycopg.connect(DSN) as conn:
+        n = conn.execute("SELECT count(*) FROM schema_version").fetchone()[0]
+    assert n == 1
+
+
+def test_pg_concurrent_construction_does_not_race_on_ddl():
+    """N replicas booting at once all run CREATE TABLE/INDEX IF NOT EXISTS; the
+    shared advisory lock must serialize them so none crashes with a catalog race
+    ('tuple concurrently updated')."""
+    from hallpass import PostgresA2AStore
+
+    _reset("a2a_messages", "a2a_cursors", "a2a_presence")
+    errors: list[Exception] = []
+
+    def boot() -> None:
+        try:
+            PostgresA2AStore(DSN)  # constructor issues the DDL
+        except Exception as exc:  # noqa: BLE001 - the whole point is to catch a race
+            errors.append(exc)
+
+    threads = [threading.Thread(target=boot) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert errors == []  # no DDL race under concurrent boot
+
+
 # -- build(database_url=...) wiring ----------------------------------------
 
 

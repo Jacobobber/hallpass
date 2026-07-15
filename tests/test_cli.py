@@ -39,6 +39,18 @@ def test_serve_parser_wires_flags():
     assert args.command == "serve" and args.dev is True and args.port == 9001
 
 
+def test_migrate_parser_wired():
+    args = build_parser().parse_args(["migrate"])
+    assert args.command == "migrate"
+
+
+def test_migrate_without_database_url_exits(monkeypatch):
+    monkeypatch.delenv("HALLPASS_DATABASE_URL", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        main(["migrate"])
+    assert "HALLPASS_DATABASE_URL" in str(exc.value)
+
+
 def test_doctor_without_env_exits_with_message(capsys, monkeypatch):
     for var in ("HALLPASS_ISSUER", "HALLPASS_AUDIENCE", "HALLPASS_JWKS_URL"):
         monkeypatch.delenv(var, raising=False)
