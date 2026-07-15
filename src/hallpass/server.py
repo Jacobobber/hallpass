@@ -40,6 +40,8 @@ def build(
     service_claim: str | None = None,
     service_values: frozenset[str] = frozenset(),
     connectors: Iterable[Connector] = (),
+    database_url: str | None = None,
+    redis_url: str | None = None,
 ) -> Hallpass:
     """Assemble a ready Hallpass from minimal configuration.
 
@@ -52,6 +54,16 @@ def build(
     (e.g. Auth0 ``gty=client-credentials``, Azure ``idtyp=app``) — needed if you
     guard spawned agents as service identities. Connectors are registered in
     order.
+
+    **Backend selection for a multi-replica rollout.** Pass ``database_url`` to
+    store credential ciphertext in shared Postgres (the ``postgres`` extra), so
+    every replica reads one vault; the Fernet key stays in this process and the
+    backend only ever sees ciphertext. Pass ``redis_url`` to share idempotency
+    and rate limiting across replicas (the ``redis`` extra) — the in-process
+    defaults fail silently behind a load balancer (a retry that lands elsewhere
+    re-runs the mutation; the per-subject budget becomes N× the cap). With
+    neither, the app is single-node on SQLite/in-memory (unchanged default). An
+    explicitly passed ``idempotency`` store always wins over ``redis_url``.
     """
     if jwks is None:
         if not jwks_url:
@@ -64,16 +76,33 @@ def build(
         service_claim=service_claim,
         service_values=service_values,
     )
-    vault = CredentialVault(vault_key or Fernet.generate_key(), path=vault_path)
+    key = vault_key or Fernet.generate_key()
+    if database_url:
+        # Deferred so a core install without the postgres extra is unaffected.
+        from .postgres_backends import PostgresVaultBackend
+
+        vault = CredentialVault(key, backend=PostgresVaultBackend(database_url))
+    else:
+        vault = CredentialVault(key, path=vault_path)
+    idem = idempotency
+    if idem is None and redis_url:
+        from .redis_backends import RedisIdempotencyStore
+
+        idem = RedisIdempotencyStore.from_url(redis_url)
     limiter: RateLimiter | None = None
     if rate_limit is not None:
-        limiter = FixedWindowRateLimiter(rate_limit[0], rate_limit[1])
+        if redis_url:
+            from .redis_backends import RedisRateLimiter
+
+            limiter = RedisRateLimiter.from_url(rate_limit[0], rate_limit[1], redis_url)
+        else:
+            limiter = FixedWindowRateLimiter(rate_limit[0], rate_limit[1])
     app = Hallpass(
         verifier=verifier,
         vault=vault,
         audit=audit,
         rate_limiter=limiter,
-        idempotency=idempotency,
+        idempotency=idem,
     )
     for connector in connectors:
         app.add_connector(connector)

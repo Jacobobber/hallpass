@@ -34,6 +34,23 @@ def test_healthz_needs_no_auth():
     app.close()
 
 
+def test_readyz_ready_is_200_no_auth():
+    app, _ = _app()
+    status, payload = handle_request(app, "GET", "/readyz", bearer="", body=None)
+    assert status == 200
+    assert payload == {"status": "ready", "checks": {"vault": "ok"}}
+    app.close()
+
+
+def test_readyz_not_ready_is_503():
+    app, _ = _app()
+    app.close()  # backend now unreachable
+    status, payload = handle_request(app, "GET", "/readyz", bearer="", body=None)
+    assert status == 503
+    assert payload["status"] == "not ready"
+    assert payload["checks"]["vault"] == "error"
+
+
 def test_tools_list_is_per_bearer():
     app, token = _app()
     status, payload = handle_request(

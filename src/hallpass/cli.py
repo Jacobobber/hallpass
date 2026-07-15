@@ -12,7 +12,14 @@ shell over the library so the CLI can't drift from it:
 Production `serve`/`doctor` read config from the environment:
     HALLPASS_ISSUER, HALLPASS_AUDIENCE, HALLPASS_JWKS_URL   (required)
     HALLPASS_VAULT_KEY                                      (recommended; else ephemeral)
+    HALLPASS_DATABASE_URL                                   (optional; Postgres -> shared vault)
+    HALLPASS_REDIS_URL                                      (optional; Redis -> shared idempotency + rate limit)
+    HALLPASS_RATE_LIMIT                                     (optional; "max/window_seconds", e.g. "120/60")
     HALLPASS_HOST, HALLPASS_PORT                            (optional)
+
+Set HALLPASS_DATABASE_URL and HALLPASS_REDIS_URL to run multiple replicas
+behind a load balancer with one shared vault, idempotency cache, and
+rate-limit budget; with neither, a single node runs on local SQLite.
 """
 
 from __future__ import annotations
@@ -27,6 +34,25 @@ from .core import Hallpass
 from .diagnostics import doctor, format_report
 from .search import LexicalRanker
 from .server import build, dev_app
+
+
+def _parse_rate_limit(raw: str | None) -> tuple[int, float] | None:
+    """Parse HALLPASS_RATE_LIMIT ("max/window_seconds", e.g. "120/60") into the
+    ``(max_calls, window_seconds)`` build() expects. Raises SystemExit with an
+    actionable message on a malformed value so a typo fails fast, not silently."""
+    if not raw:
+        return None
+    try:
+        calls_s, window_s = raw.split("/", 1)
+        calls, window = int(calls_s), float(window_s)
+        if calls < 1 or window <= 0:
+            raise ValueError
+    except ValueError:
+        raise SystemExit(
+            f"invalid HALLPASS_RATE_LIMIT {raw!r}: expected 'max/window_seconds'"
+            " with max>=1 and window>0, e.g. '120/60'"
+        ) from None
+    return calls, window
 
 
 def _app_from_env() -> Hallpass:
@@ -52,6 +78,9 @@ def _app_from_env() -> Hallpass:
         audience=audience,
         jwks_url=jwks_url,
         vault_key=os.environ.get("HALLPASS_VAULT_KEY"),
+        database_url=os.environ.get("HALLPASS_DATABASE_URL"),
+        redis_url=os.environ.get("HALLPASS_REDIS_URL"),
+        rate_limit=_parse_rate_limit(os.environ.get("HALLPASS_RATE_LIMIT")),
         connectors=catalog_mod.load_all(),
     )
 
@@ -98,10 +127,15 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print(f"  export TOK={demo}\n")
         print("try it:")
         print(f"  curl http://{host}:{port}/healthz")
+        print(f"  curl http://{host}:{port}/readyz")
         print(f'  curl -H "Authorization: Bearer $TOK" http://{host}:{port}/tools')
     else:
         app = _app_from_env()
-        print(f"hallpass on http://{host}:{port}")
+        # Report which backends are active (never the URLs/secrets) so an
+        # operator can confirm a multi-replica rollout is actually shared.
+        vault = "postgres" if os.environ.get("HALLPASS_DATABASE_URL") else "sqlite"
+        shared = "redis" if os.environ.get("HALLPASS_REDIS_URL") else "in-process"
+        print(f"hallpass on http://{host}:{port}  (vault: {vault}, shared: {shared})")
     server = serve(app, host=host, port=port)
     try:
         server.serve_forever()
