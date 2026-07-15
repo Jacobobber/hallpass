@@ -83,9 +83,10 @@ def test_a2a_roster_uses_index(tmp_path):
     bus.declare_channel("c", ChannelPolicy())
     for i in range(200):
         bus.announce(Principal(f"a{i}", frozenset()), "c")
-    assert "idx_a2a_presence_channel_seen" in _index_names(bus._conn)
+    # the bus delegates its message/cursor/presence storage to an A2AStore
+    assert "idx_a2a_presence_channel_seen" in _index_names(bus._store._conn)
     plan = _plan(
-        bus._conn,
+        bus._store._conn,
         "SELECT subject FROM a2a_presence WHERE channel = ? AND last_seen >= ?"
         " ORDER BY subject",
         ("c", 0.0),
@@ -108,11 +109,12 @@ def test_wal_enabled_on_file_backed_stores(tmp_path):
     queue = TaskQueue(path=str(tmp_path / "tq.db"))
     stores = [
         SqliteAuditLog(path=str(tmp_path / "au.db")),
-        A2ABus(path=str(tmp_path / "a2a.db")),
         SqlitePendingStore(path=str(tmp_path / "pend.db")),
-        # the vault and queue delegate storage to a backend; the conn lives there
+        # the vault, queue, and bus delegate storage to a backend; the conn
+        # lives there
         vault._backend,
         queue._backend,
+        A2ABus(path=str(tmp_path / "a2a.db"))._store,
     ]
     try:
         for s in stores:

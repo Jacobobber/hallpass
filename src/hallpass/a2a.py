@@ -20,6 +20,16 @@ Three ideas are reused rather than reinvented:
 - Delivery is durable and self-contained: an append-only per-channel log,
   a forward-only ack cursor per (subject, channel), and catch-up on
   reconnect, so a read without an ack means redelivery, never loss.
+
+*Where* messages, cursors, and presence live is an ``A2AStore``: SQLite by
+default (``SqliteA2AStore``, durable across processes on one host),
+in-memory for tests (``InMemoryA2AStore``), or a shared database for a
+multi-replica fleet. The store keeps two properties however it likes -- a
+monotonic per-channel sequence and a forward-only cursor -- while the bus
+keeps the authorization, auditing, and read-time sanitization above it.
+Channel *policies* are a separate ``ChannelPolicyStore`` for the same
+reason: authorization must be identical across replicas even when the
+message log is not shared.
 """
 
 from __future__ import annotations
@@ -41,6 +51,9 @@ __all__ = [
     "InMemoryChannelPolicyStore",
     "SqliteChannelPolicyStore",
     "A2AMessage",
+    "A2AStore",
+    "InMemoryA2AStore",
+    "SqliteA2AStore",
     "A2ABus",
 ]
 
@@ -191,32 +204,121 @@ class SqliteChannelPolicyStore:
         return [r[0] for r in rows]
 
 
-class A2ABus:
-    """Durable, per-principal-authorized agent-to-agent channels.
+# A stored message as the backend hands it back: (seq, sender, body, created_at).
+StoredMessage = tuple[int, str, str, float]
 
-    Channels are declared with a policy up front; posting and reading are
-    authorized against the caller's scopes and audited. Pass a file path
-    for durability across processes; the default ``:memory:`` suits tests.
-    """
 
-    def __init__(
-        self,
-        *,
-        path: str = ":memory:",
-        audit: AuditSink | None = None,
-        sanitize_reads: bool = True,
-        policies: ChannelPolicyStore | None = None,
-    ) -> None:
-        # Channel policies default to a per-process store; pass a shared one
-        # (SqliteChannelPolicyStore) so authorization is identical across
-        # replicas. Only the messages/cursors/presence live in this bus's DB.
-        self._policies: ChannelPolicyStore = policies or InMemoryChannelPolicyStore()
-        self._audit = audit
-        # Bodies are written by other principals; on read they land in a
-        # reader's (often a model's) context. Neutralise control/escape
-        # spoofing on the way out by default. Storage keeps the raw bytes so
-        # an audit or export sees exactly what was sent.
-        self._sanitize_reads = sanitize_reads
+class A2AStore(Protocol):
+    """Storage for the message log, read cursors, and presence -- the durable
+    part of the bus. Each backend keeps the same two guarantees its own way:
+
+    - ``append`` assigns a **monotonic, gap-free per-channel sequence** under
+      whatever serialization the engine gives it (SQLite: ``BEGIN IMMEDIATE``;
+      Postgres: a per-channel advisory lock), so two concurrent posts never
+      collide on a seq.
+    - ``advance_cursor`` is **forward-only** (``MAX(current, up_to)``), so a
+      stale ack cannot regress a reader's position.
+
+    The bus layers authorization, auditing, and read-time sanitization on top;
+    the store holds raw bytes and never inspects scopes."""
+
+    def append(self, channel: str, sender: str, body: str, created_at: float) -> int:
+        """Append a message and return its newly assigned per-channel seq."""
+        ...
+
+    def read_after(
+        self, channel: str, after_seq: int, limit: int
+    ) -> list[StoredMessage]:
+        """Messages with ``seq > after_seq``, ascending, at most ``limit``."""
+        ...
+
+    def head(self, channel: str) -> int:
+        """The greatest seq on the channel, or 0 if it has no messages."""
+        ...
+
+    def cursor(self, subject: str, channel: str) -> int:
+        """The subject's acked position on the channel, 0 if never acked."""
+        ...
+
+    def advance_cursor(self, subject: str, channel: str, up_to: int) -> int:
+        """Move the cursor forward-only to ``max(current, up_to)``; return it."""
+        ...
+
+    def touch_presence(self, channel: str, subject: str, at: float) -> None:
+        """Record ``subject`` as live on ``channel`` at time ``at`` (upsert)."""
+        ...
+
+    def roster(self, channel: str, since: float) -> list[str]:
+        """Subjects whose last_seen is ``>= since``, sorted."""
+        ...
+
+    def close(self) -> None: ...
+
+
+class InMemoryA2AStore:
+    """Process-local message/cursor/presence storage; thread-safe (the lock is
+    what makes ``append`` assign a unique seq across threads), not durable. The
+    default when a bus is constructed with no path and no store is still SQLite
+    ``:memory:``; this is for tests and for embedding without a filesystem."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._msgs: dict[str, list[StoredMessage]] = {}
+        self._cursors: dict[tuple[str, str], int] = {}
+        self._presence: dict[tuple[str, str], float] = {}
+
+    def append(self, channel: str, sender: str, body: str, created_at: float) -> int:
+        with self._lock:
+            log = self._msgs.setdefault(channel, [])
+            seq = len(log) + 1  # contiguous per channel
+            log.append((seq, sender, body, created_at))
+            return seq
+
+    def read_after(
+        self, channel: str, after_seq: int, limit: int
+    ) -> list[StoredMessage]:
+        with self._lock:
+            log = self._msgs.get(channel, [])
+            return [m for m in log if m[0] > after_seq][:limit]
+
+    def head(self, channel: str) -> int:
+        with self._lock:
+            log = self._msgs.get(channel)
+            return log[-1][0] if log else 0
+
+    def cursor(self, subject: str, channel: str) -> int:
+        with self._lock:
+            return self._cursors.get((subject, channel), 0)
+
+    def advance_cursor(self, subject: str, channel: str, up_to: int) -> int:
+        with self._lock:
+            new = max(self._cursors.get((subject, channel), 0), up_to)
+            self._cursors[(subject, channel)] = new
+            return new
+
+    def touch_presence(self, channel: str, subject: str, at: float) -> None:
+        with self._lock:
+            self._presence[(channel, subject)] = at
+
+    def roster(self, channel: str, since: float) -> list[str]:
+        with self._lock:
+            return sorted(
+                subject
+                for (ch, subject), seen in self._presence.items()
+                if ch == channel and seen >= since
+            )
+
+    def close(self) -> None:
+        pass
+
+
+class SqliteA2AStore:
+    """Durable message/cursor/presence storage on SQLite. ``append`` runs under
+    ``BEGIN IMMEDIATE`` (the write lock) so two posters cannot claim the same
+    seq. Pass a file ``path`` for durability across processes on one host;
+    ``:memory:`` is a single-process default."""
+
+    def __init__(self, *, path: str = ":memory:") -> None:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(
             path, check_same_thread=False, isolation_level=None, timeout=5.0
@@ -228,6 +330,131 @@ class A2ABus:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def append(self, channel: str, sender: str, body: str, created_at: float) -> int:
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM a2a_messages WHERE channel = ?",
+                    (channel,),
+                ).fetchone()
+                seq = int(row[0]) + 1
+                self._conn.execute(
+                    "INSERT INTO a2a_messages (channel, seq, sender, body, created_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (channel, seq, sender, body, created_at),
+                )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+        return seq
+
+    def read_after(
+        self, channel: str, after_seq: int, limit: int
+    ) -> list[StoredMessage]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq, sender, body, created_at FROM a2a_messages"
+                " WHERE channel = ? AND seq > ? ORDER BY seq LIMIT ?",
+                (channel, after_seq, limit),
+            ).fetchall()
+        return [(int(s), sender, body, created) for s, sender, body, created in rows]
+
+    def head(self, channel: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM a2a_messages WHERE channel = ?",
+                (channel,),
+            ).fetchone()
+        return int(row[0])
+
+    def cursor(self, subject: str, channel: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT acked_seq FROM a2a_cursors WHERE subject = ? AND channel = ?",
+                (subject, channel),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def advance_cursor(self, subject: str, channel: str, up_to: int) -> int:
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._conn.execute(
+                    "INSERT INTO a2a_cursors (subject, channel, acked_seq)"
+                    " VALUES (?, ?, ?)"
+                    " ON CONFLICT(subject, channel) DO UPDATE"
+                    " SET acked_seq = MAX(acked_seq, excluded.acked_seq)",
+                    (subject, channel, up_to),
+                )
+                row = self._conn.execute(
+                    "SELECT acked_seq FROM a2a_cursors WHERE subject = ? AND channel = ?",
+                    (subject, channel),
+                ).fetchone()
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+        return int(row[0])
+
+    def touch_presence(self, channel: str, subject: str, at: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO a2a_presence (channel, subject, last_seen)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(channel, subject) DO UPDATE"
+                " SET last_seen = excluded.last_seen",
+                (channel, subject, at),
+            )
+
+    def roster(self, channel: str, since: float) -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT subject FROM a2a_presence"
+                " WHERE channel = ? AND last_seen >= ? ORDER BY subject",
+                (channel, since),
+            ).fetchall()
+        return [str(r[0]) for r in rows]
+
+
+class A2ABus:
+    """Durable, per-principal-authorized agent-to-agent channels.
+
+    Channels are declared with a policy up front; posting and reading are
+    authorized against the caller's scopes and audited. Storage is an
+    ``A2AStore``: pass a file ``path`` for the durable SQLite default, or a
+    ``store`` (e.g. a Postgres one) for a shared multi-replica message log; the
+    default ``:memory:`` suits tests. Channel policies are a separate
+    ``policies`` store so authorization can be shared even when the log is not.
+    """
+
+    def __init__(
+        self,
+        *,
+        path: str = ":memory:",
+        audit: AuditSink | None = None,
+        sanitize_reads: bool = True,
+        policies: ChannelPolicyStore | None = None,
+        store: A2AStore | None = None,
+    ) -> None:
+        # Channel policies default to a per-process store; pass a shared one
+        # (SqliteChannelPolicyStore) so authorization is identical across
+        # replicas.
+        self._policies: ChannelPolicyStore = policies or InMemoryChannelPolicyStore()
+        self._audit = audit
+        # Bodies are written by other principals; on read they land in a
+        # reader's (often a model's) context. Neutralise control/escape
+        # spoofing on the way out by default. Storage keeps the raw bytes so
+        # an audit or export sees exactly what was sent.
+        self._sanitize_reads = sanitize_reads
+        # The message log / cursors / presence live in the store; a bare path
+        # constructs the SQLite default so existing callers are unaffected.
+        self._store: A2AStore = store or SqliteA2AStore(path=path)
+
+    def close(self) -> None:
+        self._store.close()
 
     def declare_channel(self, name: str, policy: ChannelPolicy) -> None:
         """Register a channel and the scopes it requires. Re-declaring
@@ -273,24 +500,8 @@ class A2ABus:
         policy = self._policies.get(channel)
         need = policy.post_scopes if policy else frozenset()
         self._authorize(principal, channel, need, "a2a_post")
-        with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                row = self._conn.execute(
-                    "SELECT COALESCE(MAX(seq), 0) FROM a2a_messages WHERE channel = ?",
-                    (channel,),
-                ).fetchone()
-                seq = int(row[0]) + 1
-                created = time.time()
-                self._conn.execute(
-                    "INSERT INTO a2a_messages (channel, seq, sender, body, created_at)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (channel, seq, principal.subject, body, created),
-                )
-                self._conn.execute("COMMIT")
-            except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
+        created = time.time()
+        seq = self._store.append(channel, principal.subject, body, created)
         self._record(principal.subject, "a2a_post", "allow", channel)
         return A2AMessage(channel, seq, principal.subject, body, created)
 
@@ -304,24 +515,15 @@ class A2ABus:
         need = policy.read_scopes if policy else frozenset()
         self._authorize(principal, channel, need, "a2a_read")
         out: list[A2AMessage] = []
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT acked_seq FROM a2a_cursors WHERE subject = ? AND channel = ?",
-                (principal.subject, channel),
-            ).fetchone()
-            position = int(cur[0]) if cur else 0
-            while True:
-                rows = self._conn.execute(
-                    "SELECT seq, sender, body, created_at FROM a2a_messages"
-                    " WHERE channel = ? AND seq > ? ORDER BY seq LIMIT ?",
-                    (channel, position, page_size),
-                ).fetchall()
-                if not rows:
-                    break
-                for seq, sender, body, created in rows:
-                    clean = sanitize(body) if self._sanitize_reads else body
-                    out.append(A2AMessage(channel, int(seq), sender, clean, created))
-                position = int(rows[-1][0])
+        position = self._store.cursor(principal.subject, channel)
+        while True:
+            rows = self._store.read_after(channel, position, page_size)
+            if not rows:
+                break
+            for seq, sender, body, created in rows:
+                clean = sanitize(body) if self._sanitize_reads else body
+                out.append(A2AMessage(channel, seq, sender, clean, created))
+            position = rows[-1][0]
         self._record(principal.subject, "a2a_read", "allow", channel)
         return out
 
@@ -331,30 +533,11 @@ class A2ABus:
         policy = self._policies.get(channel)
         need = policy.read_scopes if policy else frozenset()
         self._authorize(principal, channel, need, "a2a_ack")
-        with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                head_row = self._conn.execute(
-                    "SELECT COALESCE(MAX(seq), 0) FROM a2a_messages WHERE channel = ?",
-                    (channel,),
-                ).fetchone()
-                if up_to > int(head_row[0]):
-                    raise ValueError("cannot ack beyond channel head")
-                self._conn.execute(
-                    "INSERT INTO a2a_cursors (subject, channel, acked_seq) VALUES (?, ?, ?)"
-                    " ON CONFLICT(subject, channel) DO UPDATE"
-                    " SET acked_seq = MAX(acked_seq, excluded.acked_seq)",
-                    (principal.subject, channel, up_to),
-                )
-                new_row = self._conn.execute(
-                    "SELECT acked_seq FROM a2a_cursors WHERE subject = ? AND channel = ?",
-                    (principal.subject, channel),
-                ).fetchone()
-                self._conn.execute("COMMIT")
-            except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
-        return int(new_row[0])
+        # Messages are append-only, so the head only grows: checking it before
+        # the forward-only advance can never let the cursor pass the true head.
+        if up_to > self._store.head(channel):
+            raise ValueError("cannot ack beyond channel head")
+        return self._store.advance_cursor(principal.subject, channel, up_to)
 
     # -- presence / live roster --------------------------------------------
 
@@ -368,14 +551,7 @@ class A2ABus:
         need = policy.post_scopes if policy else frozenset()
         self._authorize(principal, channel, need, "a2a_announce")
         now = time.time()
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO a2a_presence (channel, subject, last_seen)"
-                " VALUES (?, ?, ?)"
-                " ON CONFLICT(channel, subject) DO UPDATE"
-                " SET last_seen = excluded.last_seen",
-                (channel, principal.subject, now),
-            )
+        self._store.touch_presence(channel, principal.subject, now)
         self._record(principal.subject, "a2a_announce", "allow", channel)
         return now
 
@@ -391,11 +567,6 @@ class A2ABus:
         need = policy.read_scopes if policy else frozenset()
         self._authorize(principal, channel, need, "a2a_roster")
         cutoff = time.time() - within
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT subject FROM a2a_presence"
-                " WHERE channel = ? AND last_seen >= ? ORDER BY subject",
-                (channel, cutoff),
-            ).fetchall()
+        subjects = self._store.roster(channel, cutoff)
         self._record(principal.subject, "a2a_roster", "allow", channel)
-        return [str(r[0]) for r in rows]
+        return subjects
