@@ -252,16 +252,23 @@ def test_pg_build_database_url_wires_durable_vault():
     """build(database_url=...) -- the path 'hallpass serve' takes from
     HALLPASS_DATABASE_URL -- puts the credential vault on Postgres: durable,
     and readiness reports the backend answering."""
+    from cryptography.fernet import Fernet
+
     from hallpass import StaticJwks, build
 
     _reset("credentials")
-    app = build(
-        issuer="i",
-        audience="a",
-        jwks=StaticJwks({"keys": []}),
-        vault_key=None,  # a real deployment sets HALLPASS_VAULT_KEY; ephemeral here
-        database_url=DSN,
-    )
+    # database_url without redis_url warns (vault shared, ops stores per-process);
+    # legitimate on a single node, which is what this test is.
+    with pytest.warns(UserWarning, match="redis_url"):
+        app = build(
+            issuer="i",
+            audience="a",
+            jwks=StaticJwks({"keys": []}),
+            # a shared Postgres vault requires a stable key (build refuses
+            # without one -- a per-replica ephemeral key corrupts credentials)
+            vault_key=Fernet.generate_key(),
+            database_url=DSN,
+        )
     assert app.vault_durable is True
     ready, checks = app.check_readiness()
     assert ready is True and checks["vault"] == "ok"

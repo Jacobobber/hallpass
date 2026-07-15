@@ -38,17 +38,19 @@ def test_readyz_ready_is_200_no_auth():
     app, _ = _app()
     status, payload = handle_request(app, "GET", "/readyz", bearer="", body=None)
     assert status == 200
-    assert payload == {"status": "ready", "checks": {"vault": "ok"}}
+    # opaque: status only, no component/topology detail to an unauth caller
+    assert payload == {"status": "ready"}
     app.close()
 
 
-def test_readyz_not_ready_is_503():
+def test_readyz_not_ready_is_503_and_opaque():
     app, _ = _app()
     app.close()  # backend now unreachable
     status, payload = handle_request(app, "GET", "/readyz", bearer="", body=None)
     assert status == 503
-    assert payload["status"] == "not ready"
-    assert payload["checks"]["vault"] == "error"
+    assert payload == {"status": "not ready"}  # no backend name leaks
+    # nothing in the body could carry a host, DSN, or which store is down
+    assert "checks" not in payload
 
 
 def test_tools_list_is_per_bearer():

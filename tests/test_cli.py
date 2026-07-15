@@ -46,3 +46,25 @@ def test_doctor_without_env_exits_with_message(capsys, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         main(["doctor"])
     assert "HALLPASS_ISSUER" in str(exc.value)
+
+
+def test_serve_dev_refused_with_production_signal(monkeypatch):
+    """serve --dev wires a token forger; it must refuse when a production signal
+    is present (a shared database), so it can never run reachable in prod."""
+    monkeypatch.setenv("HALLPASS_DATABASE_URL", "postgresql://db/x")
+    with pytest.raises(SystemExit) as exc:
+        main(["serve", "--dev"])
+    assert "dev" in str(exc.value).lower()
+
+
+def test_service_claim_without_values_is_rejected(monkeypatch):
+    """A service_claim with no values means no token is ever a service principal,
+    silently disabling the human-gate's service refusal. Fail fast."""
+    monkeypatch.setenv("HALLPASS_ISSUER", "https://issuer.example")
+    monkeypatch.setenv("HALLPASS_AUDIENCE", "https://api.example")
+    monkeypatch.setenv("HALLPASS_JWKS_URL", "https://issuer.example/jwks")
+    monkeypatch.setenv("HALLPASS_SERVICE_CLAIM", "gty")
+    monkeypatch.delenv("HALLPASS_SERVICE_VALUES", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        main(["doctor"])
+    assert "HALLPASS_SERVICE_VALUES" in str(exc.value)

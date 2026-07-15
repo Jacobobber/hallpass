@@ -94,3 +94,20 @@ def test_build_generates_a_vault_key_when_omitted(keypair):
     )
     assert isinstance(app, Hallpass)
     app.close()
+
+
+def test_build_refuses_shared_vault_without_a_key(keypair):
+    """A shared Postgres vault + a generated (per-replica) key would silently
+    corrupt credentials: replica A's ciphertext is undecryptable on replica B.
+    build() must fail closed, and before it ever touches the database."""
+    with pytest.raises(ValueError, match="vault_key"):
+        build(
+            issuer=ISSUER,
+            audience=AUDIENCE,
+            jwks=StaticJwks({"keys": [jwk_for(keypair, "k1")]}),
+            database_url="postgresql://unused/db",  # never connected: guard is first
+        )
+
+
+# (the database_url-without-redis_url warning is asserted against a real engine
+# in tests/test_postgres_backends.py::test_pg_build_database_url_wires_durable_vault)

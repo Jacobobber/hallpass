@@ -67,7 +67,11 @@ class RedisIdempotencyStore:
         """Build one from a Redis URL (requires the ``redis`` extra)."""
         import redis
 
-        return cls(redis.Redis.from_url(url, decode_responses=True), **kwargs)
+        # Bounded connect so an unreachable Redis fails fast, not on a hang.
+        return cls(
+            redis.Redis.from_url(url, decode_responses=True, socket_connect_timeout=5),
+            **kwargs,
+        )
 
     def _key(self, subject: str, tool: str, key: str) -> str:
         # Hash the tuple so an arbitrary subject/tool/key can't collide or inject
@@ -124,7 +128,13 @@ class RedisRateLimiter:
         """Build one from a Redis URL (requires the ``redis`` extra)."""
         import redis
 
-        return cls(max_calls, window_seconds, redis.Redis.from_url(url), **kwargs)
+        # Bounded connect so an unreachable Redis fails fast, not on a hang.
+        return cls(
+            max_calls,
+            window_seconds,
+            redis.Redis.from_url(url, socket_connect_timeout=5),
+            **kwargs,
+        )
 
     def check(self, subject: str) -> None:
         bucket = int(self._now() // self._window)

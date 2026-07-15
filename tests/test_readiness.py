@@ -80,6 +80,46 @@ def test_readiness_never_leaks_more_than_status():
     app.close()
 
 
+class _CountingVault:
+    """A minimal vault stand-in that counts backend round-trips, to prove the
+    readiness cache actually spares the backend."""
+
+    durable = True
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def services(self, subject: str):
+        self.calls += 1
+        return []
+
+    def close(self) -> None:
+        pass
+
+
+def _app_with_vault(vault, **kwargs):
+    from hallpass import Hallpass, TokenVerifier
+
+    verifier = TokenVerifier(issuer="i", audience="a", jwks=EMPTY_JWKS)
+    return Hallpass(verifier=verifier, vault=vault, **kwargs)
+
+
+def test_readiness_is_cached_within_ttl():
+    vault = _CountingVault()
+    app = _app_with_vault(vault, readiness_ttl=5.0)
+    app.check_readiness()
+    app.check_readiness()
+    assert vault.calls == 1  # second call served from cache, no backend hit
+
+
+def test_readiness_ttl_zero_disables_cache():
+    vault = _CountingVault()
+    app = _app_with_vault(vault, readiness_ttl=0.0)
+    app.check_readiness()
+    app.check_readiness()
+    assert vault.calls == 2  # ttl<=0 -> always a fresh probe
+
+
 def test_build_redis_url_wires_shared_rate_limit():
     """build(redis_url=..., rate_limit=...) selects the shared Redis limiter.
     Construction is lazy (no connection), so this proves wiring; connectivity is
