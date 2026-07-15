@@ -1,0 +1,21 @@
+# Keep the build context small and secret-free: only what building the wheel
+# needs (pyproject + src). Everything else is excluded so nothing sensitive or
+# irrelevant lands in a layer.
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+tests
+docs
+*.md
+!README.md
+.env
+*.db
+dist
+build
+*.egg-info
