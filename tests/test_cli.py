@@ -79,8 +79,39 @@ def test_app_from_env_wires_audit_from_path(monkeypatch, tmp_path):
     monkeypatch.setenv("HALLPASS_JWKS_URL", "https://issuer.example/jwks")
     monkeypatch.delenv("HALLPASS_DATABASE_URL", raising=False)
     monkeypatch.setenv("HALLPASS_AUDIT_PATH", str(tmp_path / "audit.db"))
-    app = _app_from_env()
+    app, control = _app_from_env()
     assert app.has_audit is True
+    assert control is not None  # a control plane is wired alongside the app
+    app.close()
+
+
+def test_app_from_env_control_shares_revocation_with_verifier(monkeypatch, keypair):
+    """serve wires ONE revocation list into both the verifier and the control
+    plane, so revoking through the control plane stops the app's own tokens."""
+    from conftest import AUDIENCE, ISSUER, mint
+
+    from hallpass import AdminScopes, VerificationError
+    from hallpass.cli import _app_from_env
+
+    # point the app at the test keypair's issuer/audience and a static JWKS
+    monkeypatch.setenv("HALLPASS_ISSUER", ISSUER)
+    monkeypatch.setenv("HALLPASS_AUDIENCE", AUDIENCE)
+    monkeypatch.setenv("HALLPASS_JWKS_URL", "https://unused.example/jwks")
+    for var in ("HALLPASS_DATABASE_URL", "HALLPASS_REDIS_URL", "HALLPASS_AUDIT_PATH"):
+        monkeypatch.delenv(var, raising=False)
+    app, control = _app_from_env()
+    # swap in the test keypair's JWKS so minted tokens verify (no network)
+    from hallpass import StaticJwks
+
+    from conftest import jwk_for
+
+    app._verifier._jwks = StaticJwks({"keys": [jwk_for(keypair, "k1")]})
+    admin = mint(keypair, sub="ops", scope=AdminScopes.REVOKE)
+    victim = mint(keypair, sub="agent-7", scope="x")
+    assert app.principal(victim).subject == "agent-7"  # verifies before revoke
+    control.revoke_agent(admin, "agent-7")
+    with pytest.raises(VerificationError):
+        app.principal(victim)  # the control-plane revoke stopped the app's token
     app.close()
 
 
@@ -92,7 +123,7 @@ def test_app_from_env_no_audit_without_config(monkeypatch):
     monkeypatch.setenv("HALLPASS_JWKS_URL", "https://issuer.example/jwks")
     for var in ("HALLPASS_DATABASE_URL", "HALLPASS_AUDIT_PATH"):
         monkeypatch.delenv(var, raising=False)
-    app = _app_from_env()
+    app, _control = _app_from_env()
     assert app.has_audit is False
     app.close()
 
