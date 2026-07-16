@@ -25,6 +25,8 @@ from typing import Any
 
 from .a2a import ChannelPolicy, StoredMessage
 from .audit import AuditEvent
+from .humangate import PENDING, Gate, _decide
+from .identity import Principal
 from .orchestrator import Result
 from .taskqueue import LeasedTask
 
@@ -35,6 +37,7 @@ __all__ = [
     "PostgresA2AStore",
     "PostgresAuditLog",
     "PostgresRevocationList",
+    "PostgresHumanGateLedger",
     "migrate",
     "schema_version",
     "SCHEMA_VERSION",
@@ -594,6 +597,99 @@ class PostgresRevocationList:
         return [r[0] for r in rows]
 
 
+class PostgresHumanGateLedger:
+    """Shared human-gate ledger on Postgres, so a gate opened on one replica is
+    pending on all of them and a human's decision is seen fleet-wide. Same
+    ``HumanGateLedger`` protocol as the SQLite one, and it reuses the same
+    decision rule -- a service principal can never clear a gate."""
+
+    def __init__(self, dsn: str, *, now: Callable[[], float] = time.time) -> None:
+        self._dsn = dsn
+        self._now = now
+        _ensure_schema(
+            dsn,
+            [
+                "CREATE TABLE IF NOT EXISTS human_gates ("
+                " id TEXT PRIMARY KEY, reason TEXT NOT NULL, status TEXT NOT NULL,"
+                " decided_by TEXT, decided_at DOUBLE PRECISION, note TEXT NOT NULL)"
+            ],
+        )
+
+    def close(self) -> None:
+        pass
+
+    def _row(self, conn: Any, gate_id: str) -> Gate | None:
+        row = conn.execute(
+            "SELECT id, reason, status, decided_by, decided_at, note"
+            " FROM human_gates WHERE id = %s",
+            (gate_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Gate(
+            id=row[0],
+            reason=row[1],
+            status=row[2],
+            decided_by=row[3],
+            decided_at=row[4],
+            note=row[5],
+        )
+
+    def require(self, gate_id: str, *, reason: str = "") -> Gate:
+        with _connect(self._dsn) as conn:
+            existing = self._row(conn, gate_id)
+            if existing is not None and existing.status == PENDING:
+                return existing
+            conn.execute(
+                "INSERT INTO human_gates (id, reason, status, note)"
+                " VALUES (%s, %s, %s, '')"
+                " ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason,"
+                " status = 'pending', decided_by = NULL, decided_at = NULL, note = ''",
+                (gate_id, reason, PENDING),
+            )
+            conn.commit()
+            return Gate(id=gate_id, reason=reason, status=PENDING)
+
+    def decide(
+        self, gate_id: str, principal: Principal, *, approved: bool, note: str = ""
+    ) -> Gate:
+        with _connect(self._dsn) as conn:
+            gate = self._row(conn, gate_id)
+            if gate is None:
+                raise KeyError(
+                    f"no human gate {gate_id!r} is open; call require() first"
+                )
+            decided = _decide(gate, principal, approved, note, self._now())
+            conn.execute(
+                "UPDATE human_gates SET status = %s, decided_by = %s,"
+                " decided_at = %s, note = %s WHERE id = %s",
+                (
+                    decided.status,
+                    decided.decided_by,
+                    decided.decided_at,
+                    note,
+                    gate_id,
+                ),
+            )
+            conn.commit()
+            return decided
+
+    def get(self, gate_id: str) -> Gate | None:
+        with _connect(self._dsn) as conn:
+            return self._row(conn, gate_id)
+
+    def pending(self) -> list[str]:
+        with _connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT id FROM human_gates WHERE status = 'pending' ORDER BY id"
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    def cleared(self, gate_id: str) -> bool:
+        gate = self.get(gate_id)
+        return gate is not None and gate.cleared
+
+
 def schema_version(dsn: str) -> int:
     """The recorded schema revision, or 0 if the database has never been
     migrated (no ``schema_version`` row)."""
@@ -624,6 +720,7 @@ def migrate(dsn: str) -> int:
     PostgresA2AStore(dsn)
     PostgresAuditLog(dsn)
     PostgresRevocationList(dsn)
+    PostgresHumanGateLedger(dsn)
     _ensure_schema(
         dsn, ["CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"]
     )

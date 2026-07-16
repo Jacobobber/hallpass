@@ -328,6 +328,33 @@ def test_pg_revocation_list_shared():
     assert not PostgresRevocationList(DSN).is_revoked("agent-7")
 
 
+# -- human gates -----------------------------------------------------------
+
+
+def test_pg_human_gate_ledger_shared():
+    """A gate opened on one replica is pending on all of them; a human clears it
+    and the decision is seen fleet-wide; a service principal can never clear it."""
+    from hallpass import PostgresHumanGateLedger, Principal
+
+    _reset("human_gates")
+    ledger = PostgresHumanGateLedger(DSN)
+    ledger.require("deploy-prod", reason="irreversible")
+    # a second replica's ledger sees it pending
+    assert PostgresHumanGateLedger(DSN).pending() == ["deploy-prod"]
+    # a service principal cannot clear it
+    from hallpass.humangate import HumanGateError
+
+    svc = Principal("bot", frozenset(), kind="service")
+    with pytest.raises(HumanGateError):
+        ledger.decide("deploy-prod", svc, approved=True)
+    # a human clears it, and a fresh instance sees the cleared state
+    human = Principal("alice", frozenset())
+    gate = ledger.decide("deploy-prod", human, approved=True)
+    assert gate.status == "approved"
+    assert PostgresHumanGateLedger(DSN).cleared("deploy-prod")
+    assert PostgresHumanGateLedger(DSN).pending() == []
+
+
 # -- schema migration / concurrency-safe DDL -------------------------------
 
 
@@ -343,6 +370,7 @@ def test_pg_migrate_provisions_all_tables_and_records_version():
         "a2a_presence",
         "audit",
         "revocations",
+        "human_gates",
         "schema_version",
     )
     assert schema_version(DSN) == 0  # never migrated

@@ -105,6 +105,7 @@ from .postgres_backends import (
     PostgresA2AStore,
     PostgresAuditLog,
     PostgresChannelPolicyStore,
+    PostgresHumanGateLedger,
     PostgresRevocationList,
     PostgresTaskQueueBackend,
     PostgresVaultBackend,
@@ -154,7 +155,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.38.0"
+__version__ = "1.39.0"
 
 __all__ = [
     "A2ABus",
@@ -230,6 +231,7 @@ __all__ = [
     "PostgresA2AStore",
     "PostgresAuditLog",
     "PostgresChannelPolicyStore",
+    "PostgresHumanGateLedger",
     "PostgresRevocationList",
     "PostgresTaskQueueBackend",
     "PostgresVaultBackend",
