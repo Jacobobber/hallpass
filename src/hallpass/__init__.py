@@ -78,8 +78,10 @@ from .humangate import (
 )
 from .identity import (
     HttpJwks,
+    InMemoryRevocationList,
     JwksSource,
     Principal,
+    RevocationList,
     StaticJwks,
     TokenVerifier,
     VerificationError,
@@ -145,7 +147,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.34.0"
+__version__ = "1.35.0"
 
 __all__ = [
     "A2ABus",
@@ -201,6 +203,7 @@ __all__ = [
     "InMemoryHumanGateLedger",
     "InMemoryIdempotencyStore",
     "InMemoryPendingStore",
+    "InMemoryRevocationList",
     "InMemoryRoleStore",
     "InMemorySeatLedger",
     "InMemoryTaskQueueBackend",
@@ -231,6 +234,7 @@ __all__ = [
     "RedisRateLimiter",
     "RestConnector",
     "RestService",
+    "RevocationList",
     "RetryPolicy",
     "RetryingHttpClient",
     "Role",

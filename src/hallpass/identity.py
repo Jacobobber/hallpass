@@ -25,6 +25,8 @@ __all__ = [
     "HttpJwks",
     "TokenVerifier",
     "VerificationError",
+    "RevocationList",
+    "InMemoryRevocationList",
 ]
 
 
@@ -139,11 +141,52 @@ class HttpJwks:
             return document
 
 
+class RevocationList(Protocol):
+    """A set of revoked subjects the verifier consults on every ``verify``. A
+    JWT is otherwise valid until its own ``exp``, so without this a token cannot
+    be pulled back before it expires -- and 'revoke a compromised agent' would be
+    theater. The implementation is free: in-memory for a single node, or a
+    short-TTL cache over a shared store for a fleet (so ``is_revoked`` stays fast
+    on the hot path)."""
+
+    def is_revoked(self, subject: str) -> bool: ...
+
+
+class InMemoryRevocationList:
+    """Process-local revoked subjects. ``revoke`` takes effect on the very next
+    verify -- even for a token already cached or not yet expired -- so an
+    operator can cut off an agent's identity in an incident and every live token
+    for that subject stops verifying immediately. Thread-safe. A multi-replica
+    deployment wraps a shared store with a short-TTL view so a revoke on one
+    replica reaches the others."""
+
+    def __init__(self) -> None:
+        self._revoked: dict[str, str] = {}  # subject -> reason
+        self._lock = threading.Lock()
+
+    def revoke(self, subject: str, *, reason: str = "") -> None:
+        with self._lock:
+            self._revoked[subject] = reason
+
+    def restore(self, subject: str) -> None:
+        """Lift a revocation (e.g. after re-provisioning the same identity)."""
+        with self._lock:
+            self._revoked.pop(subject, None)
+
+    def is_revoked(self, subject: str) -> bool:
+        with self._lock:
+            return subject in self._revoked
+
+    def revoked(self) -> list[str]:
+        with self._lock:
+            return sorted(self._revoked)
+
+
 class TokenVerifier:
     """Verify a bearer token and return the Principal it proves.
 
     Fail-closed by construction: any missing, malformed, expired,
-    mis-audienced, mis-issued, unsigned, or unknown-key token raises
+    mis-audienced, mis-issued, unsigned, unknown-key, or revoked token raises
     VerificationError. There is no "best effort" path.
     """
 
@@ -158,10 +201,14 @@ class TokenVerifier:
         service_claim: str | None = None,
         service_values: frozenset[str] = frozenset(),
         cache_size: int = 2048,
+        revocations: RevocationList | None = None,
     ) -> None:
         self._issuer = issuer
         self._audience = audience
         self._jwks = jwks
+        # Consulted on every verify (cache hit included), so a revoked subject
+        # stops verifying immediately rather than at token expiry.
+        self._revocations = revocations
         # When set, a token whose ``service_claim`` value is in ``service_values``
         # verifies as a service principal (e.g. Auth0's gty=client-credentials,
         # Azure's idtyp=app). Left unset, every principal is a user.
@@ -182,6 +229,9 @@ class TokenVerifier:
             with self._cache_lock:
                 cached = self._cache.get(token)
                 if cached is not None and time.time() < cached[1]:
+                    # Re-check revocation on the cache hit: a cached principal
+                    # must never bypass a revoke issued after it was cached.
+                    self._deny_if_revoked(cached[0])
                     return cached[0]
         try:
             header = jwt.get_unverified_header(token)
@@ -227,12 +277,22 @@ class TokenVerifier:
             claims=claims,
             kind=kind,
         )
+        # Deny a revoked subject before caching, so the cache never holds a
+        # principal that should not verify.
+        self._deny_if_revoked(principal)
         if self._cache_size:
             with self._cache_lock:
                 if len(self._cache) >= self._cache_size:
                     self._cache.pop(next(iter(self._cache)))  # bounded: drop oldest
                 self._cache[token] = (principal, float(claims["exp"]))
         return principal
+
+    def _deny_if_revoked(self, principal: Principal) -> None:
+        if self._revocations is not None and self._revocations.is_revoked(
+            principal.subject
+        ):
+            # Opaque like the other refusals; the audit trail carries the detail.
+            raise VerificationError("token rejected: revoked")
 
     def _key_for(self, kid: str | None) -> Any:
         if kid is None:
