@@ -103,30 +103,30 @@ readinessProbe:
 
 ## Control plane (admin + observability)
 
-Opt-in. Construct a `ControlPlane` over the same verifier and pass it to the
-server; it exposes gated `/admin/*` endpoints and an admin dashboard at
-`GET /admin`:
+`hallpass serve` wires a control plane automatically and serves an admin
+dashboard at **`GET /admin`** plus a gated **`/admin/*`** API. Grant an operator
+the admin scopes (`admin:queue` / `admin:audit` / `admin:revoke` / `admin:gate`)
+via your IdP or a role; every admin call is the same verify → admin-scope →
+action → audit path, and a non-admin gets the same opaque `404` as any unknown
+path, so the surface can't be probed. The dashboard holds no privilege of its own
+— it's a static shell that calls the gated API with the operator's pasted bearer.
 
-```python
-from hallpass import ControlPlane
-from hallpass.http_server import serve
+The control plane's four subsystems follow the vault: with `HALLPASS_DATABASE_URL`
+they are the **shared Postgres** backends, so an action on any replica is
+fleet-wide —
 
-control = ControlPlane(verifier=app.verifier, audit=audit, queue=queue,
-                       revocations=revocations, gates=gates)
-serve(app, host="0.0.0.0", port=8000, control=control)
-```
+- **revocations** — a shared `PostgresRevocationList` behind a short-TTL
+  `CachedRevocationList`, so a revoke on any replica stops the agent's tokens
+  fleet-wide (within the TTL) while `is_revoked` stays O(1) on the verify path;
+- **audit tail** — the shared audit store (the whole fleet's trail);
+- **queue depth** — the shared Postgres task queue the workers pull from;
+- **human gates** — a shared `PostgresHumanGateLedger`, so a gate opened on one
+  replica is pending on all and a human's decision propagates.
 
-Every admin call is the same verify → admin-scope (`admin:queue` / `admin:audit`
-/ `admin:revoke` / `admin:gate`) → action → audit path; a non-admin gets the same
-opaque `404` as any unknown path, so the surface can't be probed. The dashboard
-holds no privilege of its own — it's a static shell that calls the gated API with
-the operator's pasted bearer.
-
-**Multi-replica caveat:** `InMemoryRevocationList` is per-process, so a revoke via
-one replica's control plane only affects that replica. For fleet-wide revocation,
-back the `RevocationList` with a shared store (a short-TTL cache over Postgres) so
-`is_revoked` stays fast on the verify hot path — a planned backend. The audit tail
-already reads the shared store, so it shows the whole fleet.
+On a single node (no `DATABASE_URL`) they are in-process, which is correct for
+one process. Run `hallpass migrate` once so the shared tables exist before
+scaling. A human gate refuses a **service** principal even one holding
+`admin:gate`, so a machine token can never clear it.
 
 ## Operational notes
 

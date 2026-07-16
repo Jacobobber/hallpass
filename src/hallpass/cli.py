@@ -36,10 +36,14 @@ from typing import Any
 
 from . import catalog as catalog_mod
 from .audit import AuditSink, SqliteAuditLog
+from .control import ControlPlane
 from .core import Hallpass
 from .diagnostics import doctor, format_report
+from .humangate import InMemoryHumanGateLedger
+from .identity import InMemoryRevocationList
 from .search import LexicalRanker
 from .server import build, dev_app
+from .taskqueue import TaskQueue
 
 
 def _parse_rate_limit(raw: str | None) -> tuple[int, float] | None:
@@ -61,7 +65,7 @@ def _parse_rate_limit(raw: str | None) -> tuple[int, float] | None:
     return calls, window
 
 
-def _app_from_env() -> Hallpass:
+def _app_from_env() -> tuple[Hallpass, ControlPlane]:
     issuer = os.environ.get("HALLPASS_ISSUER")
     audience = os.environ.get("HALLPASS_AUDIENCE")
     jwks_url = os.environ.get("HALLPASS_JWKS_URL")
@@ -94,7 +98,12 @@ def _app_from_env() -> Hallpass:
             " (e.g. 'client-credentials') or unset the claim."
         )
     database_url = os.environ.get("HALLPASS_DATABASE_URL")
-    return build(
+    audit = _audit_from_env(database_url)
+    # The revocation list is shared between the verifier (which consults it on
+    # every verify) and the control plane (which mutates it), so a revoke takes
+    # effect on this server's own tokens too.
+    revocations, queue, gates = _control_subsystems(database_url)
+    app = build(
         issuer=issuer,
         audience=audience,
         jwks_url=jwks_url,
@@ -104,9 +113,41 @@ def _app_from_env() -> Hallpass:
         rate_limit=_parse_rate_limit(os.environ.get("HALLPASS_RATE_LIMIT")),
         service_claim=service_claim,
         service_values=service_values,
-        audit=_audit_from_env(database_url),
+        audit=audit,
+        revocations=revocations,
         connectors=catalog_mod.load_all(),
     )
+    control = ControlPlane(
+        verifier=app.verifier,
+        audit=audit,
+        queue=queue,
+        revocations=revocations,
+        gates=gates,
+    )
+    return app, control
+
+
+def _control_subsystems(
+    database_url: str | None,
+) -> tuple[Any, TaskQueue, Any]:
+    """The subsystems the control plane observes and manages. With a database
+    they are the SHARED Postgres backends (so an admin action on any replica is
+    fleet-wide, and the audit tail / gates / revocations are one record); on a
+    single node they are in-process. Returns ``(revocations, queue, gates)``."""
+    if database_url:
+        from .postgres_backends import (
+            PostgresHumanGateLedger,
+            PostgresRevocationList,
+            PostgresTaskQueueBackend,
+        )
+        from .revocation import CachedRevocationList
+
+        return (
+            CachedRevocationList(PostgresRevocationList(database_url)),
+            TaskQueue(backend=PostgresTaskQueueBackend(database_url)),
+            PostgresHumanGateLedger(database_url),
+        )
+    return InMemoryRevocationList(), TaskQueue(), InMemoryHumanGateLedger()
 
 
 def _audit_from_env(database_url: str | None) -> AuditSink | None:
@@ -126,7 +167,10 @@ def _audit_from_env(database_url: str | None) -> AuditSink | None:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    app = dev_app(connectors=catalog_mod.load_all())[0] if args.dev else _app_from_env()
+    if args.dev:
+        app = dev_app(connectors=catalog_mod.load_all())[0]
+    else:
+        app = _app_from_env()[0]
     findings = doctor(app)
     print(format_report(findings))
     app.close()
@@ -189,6 +233,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             f" (HALLPASS_DATABASE_URL set or non-loopback host {host!r}):"
             " the dev minter forges tokens for any subject. Run without --dev."
         )
+    control: ControlPlane | None = None
     if args.dev:
         app, token = dev_app(connectors=catalog_mod.load_all())
         demo = token("demo-user", ["github:read"])
@@ -200,13 +245,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print(f"  curl http://{host}:{port}/readyz")
         print(f'  curl -H "Authorization: Bearer $TOK" http://{host}:{port}/tools')
     else:
-        app = _app_from_env()
+        app, control = _app_from_env()
         # Report which backends are active (never the URLs/secrets) so an
         # operator can confirm a multi-replica rollout is actually shared.
         vault = "postgres" if os.environ.get("HALLPASS_DATABASE_URL") else "sqlite"
         shared = "redis" if os.environ.get("HALLPASS_REDIS_URL") else "in-process"
         print(f"hallpass on http://{host}:{port}  (vault: {vault}, shared: {shared})")
-    server = serve(app, host=host, port=port)
+        print(f"  admin dashboard + gated /admin API at http://{host}:{port}/admin")
+    server = serve(app, host=host, port=port, control=control)
     _serve_until_signal(server, app)
     return 0
 
