@@ -68,15 +68,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: bring up the stack
-        env:
-          HALLPASS_ISSUER: https://issuer.example
-          HALLPASS_AUDIENCE: https://api.example
-          HALLPASS_JWKS_URL: https://issuer.example/jwks
+      - name: write .env
         run: |
-          # A valid Fernet key is urlsafe-base64 of 32 bytes (no cryptography dep).
-          export HALLPASS_VAULT_KEY=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-          docker compose up -d --build
+          # compose auto-reads .env for EVERY command (up, logs, down), so the
+          # required vars resolve in the teardown steps too. A valid Fernet key
+          # is urlsafe-base64 of 32 bytes (no cryptography dependency).
+          {
+            echo "HALLPASS_ISSUER=https://issuer.example"
+            echo "HALLPASS_AUDIENCE=https://api.example"
+            echo "HALLPASS_JWKS_URL=https://issuer.example/jwks"
+            echo "HALLPASS_VAULT_KEY=$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+          } > .env
+      - name: bring up the stack
+        run: docker compose up -d --build
       - name: wait for readiness through the load balancer
         run: |
           for i in $(seq 1 40); do

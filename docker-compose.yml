@@ -12,6 +12,7 @@
 # a real deployment (see docs/DEPLOY.md); this example is plaintext for local use.
 
 x-app: &app
+  build: .
   image: hallpass:local
   restart: unless-stopped
   environment: &app-env
