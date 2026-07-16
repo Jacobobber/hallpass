@@ -57,6 +57,7 @@ from .consent import (
     InMemoryConsentLedger,
     SqliteConsentLedger,
 )
+from .control import AdminScopes, ControlDenied, ControlPlane
 from .core import Hallpass
 from .delegation import (
     Delegation,
@@ -147,12 +148,13 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.35.0"
+__version__ = "1.36.0"
 
 __all__ = [
     "A2ABus",
     "A2AMessage",
     "A2AStore",
+    "AdminScopes",
     "AgentClient",
     "AgentContext",
     "AgentHandle",
@@ -174,6 +176,8 @@ __all__ = [
     "ConnectorError",
     "Consent",
     "ConsentLedger",
+    "ControlDenied",
+    "ControlPlane",
     "CredentialVault",
     "Delegation",
     "DelegationError",

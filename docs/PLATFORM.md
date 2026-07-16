@@ -159,10 +159,18 @@ database and runs multi-replica.
 *Milestone:* N replicas behind a load balancer with rate-limit, idempotency, A2A authz, coordination,
 and per-org credentials all correct across replicas — verified by a named multi-replica isolation test.
 
-**Phase 4 — Control plane / dashboard.** Lifecycle supervisor, shared registry, gated admin +
-observability API/dashboard.
-*Milestone:* an org admin provisions a harness, watches the live roster and queue depth, approves a
-held human-gate, and revokes an agent — from the dashboard, every action gated and audited.
+**Phase 4 — Control plane / dashboard (in progress).** Gated admin + observability API, then a
+dashboard, then a lifecycle supervisor / shared registry.
+*Landed:* **real token revocation** (`RevocationList`, v1.35.0) — the verifier consults it on every
+verify, cache hit included, so a revoke pulls a live token back immediately instead of at `exp`; and
+the **`ControlPlane`** (v1.36.0) — a gated admin + observability surface (`queue_depth`, `audit_tail`
+over the shared trail, `revoke`/`restore`, `pending_gates`/`decide_gate`) where every call is the same
+`TokenVerifier` → `Principal` → admin-scope check → action → audit, with no second/weaker auth path and
+opaque deny; `decide_gate` delegates to the `HumanGateLedger`, so a service token can never clear a
+human gate even holding `admin:gate`. *Next:* an HTTP surface for the control plane and a dashboard
+client (a pure consumer of the gated API), then the lifecycle supervisor behind the `Spawner`.
+*Milestone:* an org admin watches queue depth, approves a held human-gate, and revokes an agent — from
+the dashboard, every action gated and audited.
 
 **The highest-leverage first move** is the minter-as-service in Phase 1: it is the physical seam where
 *both* hard requirements — own identity, own keys — become enforced properties instead of conventions,
