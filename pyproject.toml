@@ -1,6 +1,8 @@
 [project]
 name = "hallpass"
-version = "1.25.0"
+# Single source of truth: the version is read from src/hallpass/__init__.py
+# (__version__) by hatchling, so a wheel can never drift from the runtime value.
+dynamic = ["version"]
 description = "Auth-native substrate for multi-agent organizations: per-agent identity, scope-as-capability, coordination gated by one core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,6 +56,9 @@ dev = ["pytest>=8", "mcp>=1.9", "httpx>=0.27", "hypothesis>=6"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/hallpass/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hallpass"]

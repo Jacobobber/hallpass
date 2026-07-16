@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.33.2]
+
+- **Single-source version** — `pyproject.toml` had a static `version` that had drifted to `1.25.0`, so every wheel built since reported the wrong version regardless of `__version__`. The version is now `dynamic`, read by hatchling from `src/hallpass/__init__.py`, so the built package metadata can never diverge from the runtime `__version__` again. No API change.
+
 ## [1.33.1]
 
 - **Container image** — a `Dockerfile` (and `.dockerignore`) so `hallpass` ships as a deployable artifact. Multi-stage build (no toolchain in the runtime layer), runs as a **non-root** user, no secret baked into any layer (`HALLPASS_VAULT_KEY` / `HALLPASS_DATABASE_URL` / `HALLPASS_REDIS_URL` arrive only at runtime), `HALLPASS_HOST=0.0.0.0` set in the image (the library default `127.0.0.1` is unreachable from outside a container), and a `HEALTHCHECK` on liveness `/healthz` (not `/readyz`, so a database blip does not flap container health). A new CI `image` job builds the image and smokes it — the CLI runs inside it and it runs as the non-root user — so the deployable artifact is itself under test. No API change.
