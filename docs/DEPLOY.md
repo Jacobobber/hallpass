@@ -101,6 +101,33 @@ readinessProbe:
   recognized as service principals — otherwise every token reads as human and a
   machine token could clear a gate meant for a person.
 
+## Control plane (admin + observability)
+
+Opt-in. Construct a `ControlPlane` over the same verifier and pass it to the
+server; it exposes gated `/admin/*` endpoints and an admin dashboard at
+`GET /admin`:
+
+```python
+from hallpass import ControlPlane
+from hallpass.http_server import serve
+
+control = ControlPlane(verifier=app.verifier, audit=audit, queue=queue,
+                       revocations=revocations, gates=gates)
+serve(app, host="0.0.0.0", port=8000, control=control)
+```
+
+Every admin call is the same verify → admin-scope (`admin:queue` / `admin:audit`
+/ `admin:revoke` / `admin:gate`) → action → audit path; a non-admin gets the same
+opaque `404` as any unknown path, so the surface can't be probed. The dashboard
+holds no privilege of its own — it's a static shell that calls the gated API with
+the operator's pasted bearer.
+
+**Multi-replica caveat:** `InMemoryRevocationList` is per-process, so a revoke via
+one replica's control plane only affects that replica. For fleet-wide revocation,
+back the `RevocationList` with a shared store (a short-TTL cache over Postgres) so
+`is_revoked` stays fast on the verify hot path — a planned backend. The audit tail
+already reads the shared store, so it shows the whole fleet.
+
 ## Operational notes
 
 - **Connections.** The Postgres backends open a connection per operation. Under

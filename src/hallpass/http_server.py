@@ -33,6 +33,8 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from .audit import AuditEvent
+from .control import ControlDenied, ControlPlane
 from .core import Hallpass
 from .gating import UnknownTool
 from .identity import VerificationError
@@ -63,10 +65,13 @@ def handle_request(
     *,
     bearer: str,
     body: dict[str, Any] | None,
+    control: ControlPlane | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Map one request to ``(status_code, json_body)``. Pure: no I/O, so the
     routing and error mapping are testable without a server. No response ever
-    contains the bearer or a credential."""
+    contains the bearer or a credential. When a ``control`` plane is wired,
+    ``/admin/*`` data endpoints route to it; a non-admin caller gets the same
+    opaque ``404`` as any unknown path, so the admin surface cannot be probed."""
     if method == "GET" and path == "/healthz":
         return 200, {"status": "ok"}
 
@@ -134,16 +139,108 @@ def handle_request(
             return 500, {"error": "internal error"}
         return 200, {"result": result}
 
+    if control is not None and path.startswith("/admin/"):
+        return _handle_admin(control, method, path, bearer, body)
+
+    return 404, {"error": "not found"}
+
+
+def _event_dict(event: AuditEvent) -> dict[str, Any]:
+    return {
+        "subject": event.subject,
+        "action": event.action,
+        "decision": event.decision,
+        "tool": event.tool,
+        "reason": event.reason,
+        "at": event.at,
+        "duration_ms": event.duration_ms,
+    }
+
+
+def _handle_admin(
+    control: ControlPlane,
+    method: str,
+    path: str,
+    bearer: str,
+    body: dict[str, Any] | None,
+) -> tuple[int, dict[str, Any]]:
+    """Route an ``/admin/*`` request to the control plane. Every ControlDenied
+    (unauthenticated, missing scope, unwired subsystem) collapses to the same
+    opaque 404 as any unknown path, so a non-admin cannot map the surface; query
+    parsing is defensive (a bad ``limit`` never leaks a 400 that a valid path
+    would not). The control plane verifies, scope-checks, and audits."""
+    from urllib.parse import parse_qs, urlsplit
+
+    parts = urlsplit(path)
+    route = parts.path
+    data = body if isinstance(body, dict) else {}
+    try:
+        if method == "GET" and route == "/admin/queue":
+            return 200, {"queue": control.queue_depth(bearer)}
+        if method == "GET" and route == "/admin/audit":
+            q = parse_qs(parts.query)
+
+            def _one(key: str) -> str | None:
+                vals = q.get(key)
+                return vals[0] if vals else None
+
+            raw_limit = _one("limit")
+            limit = int(raw_limit) if raw_limit and raw_limit.isdigit() else 100
+            raw_since = _one("since")
+            since: float | None = None
+            if raw_since:
+                try:
+                    since = float(raw_since)
+                except ValueError:
+                    since = None
+            events = control.audit_tail(
+                bearer,
+                subject=_one("subject"),
+                decision=_one("decision"),
+                action=_one("action"),
+                since=since,
+                limit=limit,
+            )
+            return 200, {"events": [_event_dict(e) for e in events]}
+        if method == "GET" and route == "/admin/gates":
+            return 200, {"pending": control.pending_gates(bearer)}
+        if method == "GET" and route == "/admin/revoked":
+            return 200, {"revoked": control.revoked_agents(bearer)}
+        if method == "POST" and route == "/admin/revoke":
+            subject = str(data.get("subject") or "")
+            control.revoke_agent(bearer, subject, reason=str(data.get("reason") or ""))
+            return 200, {"revoked": subject}
+        if method == "POST" and route == "/admin/restore":
+            subject = str(data.get("subject") or "")
+            control.restore_agent(bearer, subject)
+            return 200, {"restored": subject}
+        if method == "POST" and route == "/admin/gates/decide":
+            gate_id = str(data.get("gate_id") or "")
+            status = control.decide_gate(
+                bearer,
+                gate_id,
+                approved=bool(data.get("approved", True)),
+                note=str(data.get("note") or ""),
+            )
+            return 200, {"gate": gate_id, "status": status}
+    except ControlDenied:
+        # Opaque: the whole admin surface is invisible to a non-admin.
+        return 404, {"error": "not found"}
     return 404, {"error": "not found"}
 
 
 def serve(
-    app: Hallpass, *, host: str = "127.0.0.1", port: int = 8000
+    app: Hallpass,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    control: ControlPlane | None = None,
 ) -> ThreadingHTTPServer:
     """Start (and return) a threaded HTTP server bound to ``host:port`` that
     routes through ``handle_request``. Call ``serve_forever()`` on the result,
     or ``shutdown()`` to stop. Bind to localhost by default; put a TLS proxy in
-    front for anything beyond a local demo."""
+    front for anything beyond a local demo. Pass a ``control`` plane to expose
+    the gated ``/admin/*`` API and the admin dashboard at ``GET /admin``."""
 
     class _Handler(BaseHTTPRequestHandler):
         def _respond(self, status: int, payload: dict[str, Any]) -> None:
@@ -156,7 +253,27 @@ def serve(
             self.end_headers()
             self.wfile.write(data)
 
+        def _respond_html(self, status: int, html: str) -> None:
+            data = html.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def _dispatch(self, method: str) -> None:
+            # The dashboard is an unauthenticated static shell (it holds no
+            # privilege; every data call it makes carries the operator's bearer
+            # and is gated). Only served when a control plane is wired.
+            if (
+                method == "GET"
+                and control is not None
+                and self.path.rstrip("/") == "/admin"
+            ):
+                from .dashboard import DASHBOARD_HTML
+
+                self._respond_html(200, DASHBOARD_HTML)
+                return
             bearer = bearer_from_header(self.headers.get("Authorization"))
             body: dict[str, Any] | None = None
             try:
@@ -176,7 +293,7 @@ def serve(
                     self._respond(400, {"error": "invalid JSON body"})
                     return
             status, payload = handle_request(
-                app, method, self.path, bearer=bearer, body=body
+                app, method, self.path, bearer=bearer, body=body, control=control
             )
             self._respond(status, payload)
 
