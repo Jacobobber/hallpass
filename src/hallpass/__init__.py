@@ -105,10 +105,16 @@ from .postgres_backends import (
     PostgresA2AStore,
     PostgresAuditLog,
     PostgresChannelPolicyStore,
+    PostgresRevocationList,
     PostgresTaskQueueBackend,
     PostgresVaultBackend,
     migrate,
     schema_version,
+)
+from .revocation import (
+    CachedRevocationList,
+    RevocationStore,
+    SqliteRevocationList,
 )
 from .roles import InMemoryRoleStore, Role, RoleError, RoleStore, SqliteRoleStore
 from .seats import InMemorySeatLedger, Seat, SeatLedger, SqliteSeatLedger
@@ -148,7 +154,7 @@ from .vault import (
     VaultError,
 )
 
-__version__ = "1.37.0"
+__version__ = "1.38.0"
 
 __all__ = [
     "A2ABus",
@@ -166,6 +172,7 @@ __all__ = [
     "AuditEvent",
     "AuditSink",
     "BreakerPolicy",
+    "CachedRevocationList",
     "ChannelDenied",
     "ChannelPolicy",
     "ChannelPolicyStore",
@@ -223,6 +230,7 @@ __all__ = [
     "PostgresA2AStore",
     "PostgresAuditLog",
     "PostgresChannelPolicyStore",
+    "PostgresRevocationList",
     "PostgresTaskQueueBackend",
     "PostgresVaultBackend",
     "SCHEMA_VERSION",
@@ -239,6 +247,7 @@ __all__ = [
     "RestConnector",
     "RestService",
     "RevocationList",
+    "RevocationStore",
     "RetryPolicy",
     "RetryingHttpClient",
     "Role",
@@ -255,6 +264,7 @@ __all__ = [
     "SqliteDelegationLedger",
     "SqliteHumanGateLedger",
     "SqlitePendingStore",
+    "SqliteRevocationList",
     "SqliteRoleStore",
     "SqliteSeatLedger",
     "SqliteTaskQueueBackend",

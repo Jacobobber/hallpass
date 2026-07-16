@@ -307,6 +307,27 @@ def test_pg_backends_share_one_pool_per_dsn():
     assert len(pb._POOLS) == 1  # both backends share the one pool for this DSN
 
 
+# -- revocation ------------------------------------------------------------
+
+
+def test_pg_revocation_list_shared():
+    """The shared revocation source: a revoke is visible to a fresh instance
+    (another replica), and CachedRevocationList over it serves the verify path."""
+    from hallpass import CachedRevocationList, PostgresRevocationList
+
+    _reset("revocations")
+    store = PostgresRevocationList(DSN)
+    store.revoke("agent-7", reason="compromised")
+    assert store.is_revoked("agent-7") and store.revoked() == ["agent-7"]
+    # a second replica's store sees it
+    assert PostgresRevocationList(DSN).is_revoked("agent-7")
+    # the hot-path cache reads through it
+    cached = CachedRevocationList(PostgresRevocationList(DSN), ttl_seconds=5.0)
+    assert cached.is_revoked("agent-7")
+    store.restore("agent-7")
+    assert not PostgresRevocationList(DSN).is_revoked("agent-7")
+
+
 # -- schema migration / concurrency-safe DDL -------------------------------
 
 
@@ -321,6 +342,7 @@ def test_pg_migrate_provisions_all_tables_and_records_version():
         "a2a_cursors",
         "a2a_presence",
         "audit",
+        "revocations",
         "schema_version",
     )
     assert schema_version(DSN) == 0  # never migrated
