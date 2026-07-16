@@ -42,7 +42,7 @@ mcp = ["mcp>=1.9"]
 http = ["httpx>=0.27"]
 connectors = ["httpx>=0.27"]
 redis = ["redis>=5"]
-postgres = ["psycopg[binary]>=3.1"]
+postgres = ["psycopg[binary]>=3.1", "psycopg_pool>=3.2"]
 
 [project.urls]
 Repository = "https://github.com/Jacobobber/hallpass"
@@ -70,5 +70,5 @@ testpaths = ["tests"]
 # Optional backends (the redis/postgres extras) are imported lazily inside the
 # functions that need them; their stubs are not installed in the type-check env.
 [[tool.mypy.overrides]]
-module = ["redis.*", "psycopg.*"]
+module = ["redis.*", "psycopg.*", "psycopg_pool.*"]
 ignore_missing_imports = true

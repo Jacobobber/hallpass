@@ -16,7 +16,9 @@ connections — which is what makes SKIP LOCKED do its job.
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -42,12 +44,41 @@ def _default_ids() -> str:
     return secrets.token_hex(6)
 
 
-def _connect(dsn: str) -> Any:
-    import psycopg
+# One connection pool per DSN, shared by every backend that points at it, so
+# many replicas' many operations reuse a bounded set of connections instead of a
+# fresh TCP+TLS+auth handshake per call. The pool hands out DISTINCT connections,
+# so SELECT ... FOR UPDATE SKIP LOCKED and the per-channel advisory lock (which
+# only need separate connections, not fresh ones) keep working.
+_POOLS: dict[str, Any] = {}
+_POOLS_LOCK = threading.Lock()
 
-    # A bounded connect so an unreachable database fails fast (a crash-looping
-    # pod an orchestrator can restart) instead of hanging the request or boot.
-    return psycopg.connect(dsn, connect_timeout=10)
+
+def _pool(dsn: str) -> Any:
+    pool = _POOLS.get(dsn)
+    if pool is None:
+        with _POOLS_LOCK:
+            pool = _POOLS.get(dsn)
+            if pool is None:
+                from psycopg_pool import ConnectionPool
+
+                max_size = int(os.environ.get("HALLPASS_PG_POOL_MAX", "10"))
+                # connect_timeout keeps a dead database a fast failure, not a hang.
+                pool = ConnectionPool(
+                    dsn,
+                    kwargs={"connect_timeout": 10},
+                    min_size=1,
+                    max_size=max_size,
+                    open=True,
+                )
+                _POOLS[dsn] = pool
+    return pool
+
+
+def _connect(dsn: str) -> Any:
+    # A pooled connection context manager: commits on clean exit and returns the
+    # connection to the pool. Bounded acquire so a saturated pool fails fast
+    # rather than hanging the request.
+    return _pool(dsn).connection(timeout=30)
 
 
 # The current schema revision. `hallpass migrate` records it; bump it when a
