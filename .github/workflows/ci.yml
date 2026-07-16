@@ -59,6 +59,48 @@ jobs:
       - name: image runs as a non-root user
         run: test "$(docker run --rm --entrypoint whoami hallpass:ci)" = "hallpass"
 
+  compose:
+    # Bring the multi-replica stack up (Postgres + Redis + migrate + 2 app
+    # replicas + LB) and assert the RUNNING artifact behaves: /healthz and
+    # /readyz are 200 through the LB (both replicas' backends reachable), and an
+    # unauthenticated /tools is 401 -- deny-by-default end to end. This tests the
+    # container + compose topology, not just the library.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: write .env
+        run: |
+          # compose auto-reads .env for EVERY command (up, logs, down), so the
+          # required vars resolve in the teardown steps too. A valid Fernet key
+          # is urlsafe-base64 of 32 bytes (no cryptography dependency).
+          {
+            echo "HALLPASS_ISSUER=https://issuer.example"
+            echo "HALLPASS_AUDIENCE=https://api.example"
+            echo "HALLPASS_JWKS_URL=https://issuer.example/jwks"
+            echo "HALLPASS_VAULT_KEY=$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+          } > .env
+      - name: bring up the stack
+        run: docker compose up -d --build
+      - name: wait for readiness through the load balancer
+        run: |
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/readyz || true)
+            echo "attempt $i: /readyz -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "readiness never reached 200"; exit 1
+      - name: deny-by-default through the running artifact
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/healthz)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/tools)" = "401"
+      - name: stack logs (always, for debugging)
+        if: always()
+        run: docker compose logs --no-color
+      - name: tear down
+        if: always()
+        run: docker compose down -v
+
   postgres:
     # The Postgres backends are integration-tested against a real Postgres --
     # the FOR UPDATE SKIP LOCKED exactly-once claim can only be proven against a

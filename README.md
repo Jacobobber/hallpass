@@ -6,7 +6,7 @@ An auth-native substrate for organizing fleets of independently-credentialed age
 
 One idea runs the entire stack. The verify-and-gate that decides whether *this* caller may make *this* tool call is the same decision that governs who an agent may message, who may be spawned with what capability, and who may pull which task from a shared queue. So an "organization" of agents is not an orchestration product bolted on top of an auth library — it *is* the auth layer expressed at fleet scale. Every agent authenticates as its own service identity (its own keys, never a human's session), a capability is exactly a scope set, and who-can-do-what — including who may approve whom — is enforced at call time and recorded in one audit trail.
 
-**Status: v1.25.0 — stable.** The public API (everything exported from `hallpass`) is committed to under semver since 1.0; 504 tests (6 gated on a Postgres), `mypy --strict`, and ruff green on a Linux + Windows × Python 3.10–3.14 matrix. What is here and what is next: [CHANGELOG.md](CHANGELOG.md) and [docs/PLATFORM.md](docs/PLATFORM.md). The design behind it: [docs/multi-user-is-the-hard-part.md](docs/multi-user-is-the-hard-part.md) (the auth core) and [docs/agent-identity-and-organization.md](docs/agent-identity-and-organization.md) (the org at scale).
+**Status: v1.33.3 — stable.** The public API (everything exported from `hallpass`) is committed to under semver since 1.0; 500+ tests (a Postgres-gated integration suite and a docker-compose smoke on top), `mypy --strict`, and ruff green on a Linux + Windows × Python 3.10–3.14 matrix. What is here and what is next: [CHANGELOG.md](CHANGELOG.md) and [docs/PLATFORM.md](docs/PLATFORM.md). The design behind it: [docs/multi-user-is-the-hard-part.md](docs/multi-user-is-the-hard-part.md) (the auth core) and [docs/agent-identity-and-organization.md](docs/agent-identity-and-organization.md) (the org at scale).
 
 ## Clone and run
 
@@ -122,7 +122,7 @@ hallpass doctor --dev           # config self-check (exits non-zero on an error)
 hallpass catalog list           # every connector and its tool count
 ```
 
-`hallpass serve --dev` stands up a real stdlib-only HTTP server and prints a token plus the curl to hit it; endpoints route straight through the core (`/tools` is the caller's gated catalog, `/call/<tool>` verifies and gates, an ungranted tool is the same `404` as a nonexistent one). It's a reference/dev transport — put TLS and rate limiting at a proxy. For MCP, `hallpass[mcp]` adds a thin adapter (`build_mcp_server(app, token_provider)`) that gates every list and call against the caller's bearer and advertises read-only/destructive/idempotent hints. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+`hallpass serve --dev` stands up a real stdlib-only HTTP server and prints a token plus the curl to hit it; endpoints route straight through the core (`/tools` is the caller's gated catalog, `/call/<tool>` verifies and gates, an ungranted tool is the same `404` as a nonexistent one). It's a reference/dev transport — put TLS and rate limiting at a proxy. To run it for real — the container image and a multi-replica Postgres/Redis topology behind a load balancer, one `docker compose up` — see [docs/DEPLOY.md](docs/DEPLOY.md). For MCP, `hallpass[mcp]` adds a thin adapter (`build_mcp_server(app, token_provider)`) that gates every list and call against the caller's bearer and advertises read-only/destructive/idempotent hints. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## The operational layer
 

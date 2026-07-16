@@ -2,6 +2,10 @@
 
 All notable changes to hallpass. This project follows [semantic versioning](https://semver.org): from 1.0.0 on, the public API (everything exported from the top-level `hallpass` package) is stable, and breaking changes bump the major version. Per-release detail is in the [GitHub releases](https://github.com/Jacobobber/hallpass/releases).
 
+## [1.33.3]
+
+- **Multi-replica deployment: `docker-compose.yml` + `docs/DEPLOY.md`** — the topology a company brings up in one command (`docker compose up --build`): Postgres + Redis (the shared backends), a one-shot `migrate`, two app replicas, and a round-robin load balancer (Caddy) — only the LB port published, so bearer tokens never cross the host in plaintext, and every store networked so the replicas share one vault, audit trail, idempotency cache, and rate-limit budget. `docs/DEPLOY.md` is the operational guide: single-node vs multi-replica, the full env-var table, liveness (`/healthz`) vs readiness (`/readyz`) probes with Kubernetes examples, TLS-at-the-LB / forward-only-`Authorization` / secrets-at-runtime posture, and the operational notes the design review surfaced (PgBouncer transaction pooling, fixed-window burst, connector availability read once at startup). A new CI `compose` job brings the stack up and asserts the **running artifact** end-to-end — `/healthz` and `/readyz` are 200 through the LB (both replicas' backends reachable) and an unauthenticated `/tools` is 401 (deny-by-default end to end). No API change.
+
 ## [1.33.2]
 
 - **Single-source version** — `pyproject.toml` had a static `version` that had drifted to `1.25.0`, so every wheel built since reported the wrong version regardless of `__version__`. The version is now `dynamic`, read by hatchling from `src/hallpass/__init__.py`, so the built package metadata can never diverge from the runtime `__version__` again. No API change.

@@ -1,0 +1,92 @@
+# A multi-replica hallpass deployment you can bring up in one command:
+#
+#     cp env.example .env     # set your issuer / audience / JWKS URL + a vault key
+#     docker compose up --build
+#
+# Topology: Postgres + Redis (the shared backends), a one-shot `migrate`, two app
+# replicas, and a round-robin load balancer. Only the LB port is published; the
+# app replicas are reachable only on the internal network, so bearer tokens never
+# ride plaintext across the host. Every store points at Postgres/Redis, so the
+# two replicas share one vault, audit trail, idempotency cache, and rate-limit
+# budget -- the whole point of running more than one. TLS terminates at the LB in
+# a real deployment (see docs/DEPLOY.md); this example is plaintext for local use.
+
+x-app: &app
+  build: .
+  image: hallpass:local
+  restart: unless-stopped
+  environment: &app-env
+    # Your identity provider (required). The app verifies every bearer against
+    # this JWKS; nothing here is a secret.
+    HALLPASS_ISSUER: ${HALLPASS_ISSUER:?set HALLPASS_ISSUER in .env}
+    HALLPASS_AUDIENCE: ${HALLPASS_AUDIENCE:?set HALLPASS_AUDIENCE in .env}
+    HALLPASS_JWKS_URL: ${HALLPASS_JWKS_URL:?set HALLPASS_JWKS_URL in .env}
+    # The Fernet key for the credential vault. MUST be stable and shared across
+    # replicas (a per-replica key corrupts a shared vault); keep it secret.
+    HALLPASS_VAULT_KEY: ${HALLPASS_VAULT_KEY:?set HALLPASS_VAULT_KEY in .env}
+    # Shared backends: every store networked, so the replicas do not diverge.
+    HALLPASS_DATABASE_URL: postgresql://hallpass:hallpass@postgres:5432/hallpass
+    HALLPASS_REDIS_URL: redis://redis:6379/0
+    HALLPASS_RATE_LIMIT: "120/60"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hallpass
+      POSTGRES_PASSWORD: hallpass
+      POSTGRES_DB: hallpass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hallpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Provision the schema once, before any replica starts, so N replicas never
+  # race each other's CREATE on first boot. Builds the image the app uses.
+  migrate:
+    build: .
+    image: hallpass:local
+    command: ["migrate"]
+    restart: "no"
+    environment:
+      HALLPASS_DATABASE_URL: postgresql://hallpass:hallpass@postgres:5432/hallpass
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app1:
+    <<: *app
+  app2:
+    <<: *app
+
+  lb:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app1
+      - app2
+
+volumes:
+  pgdata:
