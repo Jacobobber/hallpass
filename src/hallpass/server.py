@@ -19,7 +19,7 @@ from cryptography.fernet import Fernet
 from .audit import AuditSink
 from .connectors import Connector
 from .core import Hallpass
-from .identity import HttpJwks, JwksSource, StaticJwks, TokenVerifier
+from .identity import HttpJwks, JwksSource, RevocationList, StaticJwks, TokenVerifier
 from .idempotency import IdempotencyStore
 from .ratelimit import FixedWindowRateLimiter, RateLimiter
 from .vault import CredentialVault
@@ -43,6 +43,7 @@ def build(
     connectors: Iterable[Connector] = (),
     database_url: str | None = None,
     redis_url: str | None = None,
+    revocations: RevocationList | None = None,
 ) -> Hallpass:
     """Assemble a ready Hallpass from minimal configuration.
 
@@ -76,6 +77,7 @@ def build(
         jwks=jwks,
         service_claim=service_claim,
         service_values=service_values,
+        revocations=revocations,
     )
     if database_url and not vault_key:
         # A shared Postgres vault holds ciphertext; if each replica generated its
