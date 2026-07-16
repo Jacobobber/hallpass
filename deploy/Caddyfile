@@ -1,0 +1,14 @@
+# Round-robin load balancer over the app replicas for the docker-compose demo.
+# The auth path (verify -> gate -> vault-read -> connector) is stateless, so
+# plain round-robin is correct -- no sticky sessions are needed.
+#
+# It forwards ONLY the client's Authorization header; it never injects a trusted
+# identity header (X-Forwarded-User and the like). The app verifies the bearer
+# in-process on every request, so there is exactly one auth path. In production,
+# terminate TLS here (Caddy does this automatically for a real domain) and add
+# per-IP connection/rate limits on the pre-auth paths.
+:8080 {
+	reverse_proxy app1:8000 app2:8000 {
+		lb_policy round_robin
+	}
+}
