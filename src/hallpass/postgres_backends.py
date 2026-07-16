@@ -34,6 +34,7 @@ __all__ = [
     "PostgresVaultBackend",
     "PostgresA2AStore",
     "PostgresAuditLog",
+    "PostgresRevocationList",
     "migrate",
     "schema_version",
     "SCHEMA_VERSION",
@@ -544,6 +545,55 @@ class PostgresAuditLog:
         ]
 
 
+class PostgresRevocationList:
+    """Shared revoked-subject set on Postgres, so a control-plane revoke on any
+    replica is visible fleet-wide. Wrap in ``CachedRevocationList`` for the
+    verify hot path (this is the shared source; the cache spares a DB read per
+    token)."""
+
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
+        _ensure_schema(
+            dsn,
+            [
+                "CREATE TABLE IF NOT EXISTS revocations ("
+                " subject TEXT PRIMARY KEY, reason TEXT NOT NULL,"
+                " at DOUBLE PRECISION NOT NULL)"
+            ],
+        )
+
+    def close(self) -> None:
+        pass
+
+    def revoke(self, subject: str, *, reason: str = "") -> None:
+        with _connect(self._dsn) as conn:
+            conn.execute(
+                "INSERT INTO revocations (subject, reason, at) VALUES (%s, %s, %s)"
+                " ON CONFLICT (subject) DO UPDATE SET reason = EXCLUDED.reason",
+                (subject, reason, time.time()),
+            )
+            conn.commit()
+
+    def restore(self, subject: str) -> None:
+        with _connect(self._dsn) as conn:
+            conn.execute("DELETE FROM revocations WHERE subject = %s", (subject,))
+            conn.commit()
+
+    def is_revoked(self, subject: str) -> bool:
+        with _connect(self._dsn) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM revocations WHERE subject = %s", (subject,)
+            ).fetchone()
+        return row is not None
+
+    def revoked(self) -> list[str]:
+        with _connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT subject FROM revocations ORDER BY subject"
+            ).fetchall()
+        return [r[0] for r in rows]
+
+
 def schema_version(dsn: str) -> int:
     """The recorded schema revision, or 0 if the database has never been
     migrated (no ``schema_version`` row)."""
@@ -573,6 +623,7 @@ def migrate(dsn: str) -> int:
     PostgresVaultBackend(dsn)
     PostgresA2AStore(dsn)
     PostgresAuditLog(dsn)
+    PostgresRevocationList(dsn)
     _ensure_schema(
         dsn, ["CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"]
     )
