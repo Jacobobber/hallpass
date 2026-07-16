@@ -286,6 +286,27 @@ def test_pg_audit_log_records_and_queries():
     assert len(log2.query()) == 3
 
 
+# -- connection pool -------------------------------------------------------
+
+
+def test_pg_backends_share_one_pool_per_dsn():
+    """Backends on the same DSN reuse one connection pool (not a fresh connect
+    per operation); the pool hands out distinct connections, so the concurrency
+    primitives still hold -- proven by the SKIP-LOCKED and advisory-lock tests
+    passing against it."""
+    from hallpass import PostgresTaskQueueBackend, PostgresVaultBackend
+    from hallpass import postgres_backends as pb
+
+    _reset("tasks", "credentials")
+    pb._POOLS.clear()
+    q = PostgresTaskQueueBackend(DSN)
+    v = PostgresVaultBackend(DSN)
+    q.enqueue("op", {}, "")  # force an operation through the pool
+    v.services("nobody")
+    assert DSN in pb._POOLS  # pooling engaged, not per-op connect
+    assert len(pb._POOLS) == 1  # both backends share the one pool for this DSN
+
+
 # -- schema migration / concurrency-safe DDL -------------------------------
 
 

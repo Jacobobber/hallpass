@@ -126,6 +126,6 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: false
-      - run: uv run --group dev --with "psycopg[binary]>=3.1" pytest tests/test_postgres_backends.py -q
+      - run: uv run --group dev --extra postgres pytest tests/test_postgres_backends.py -q
         env:
           HALLPASS_TEST_DATABASE_URL: postgresql://postgres:hallpass@127.0.0.1:5432/hallpass
