@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: false
-      - run: uv run --with ruff ruff check .
-      - run: uv run --with ruff ruff format --check .
+      - run: uv run --with "ruff>=0.12,<0.13" ruff check .
+      - run: uv run --with "ruff>=0.12,<0.13" ruff format --check .
       - run: uv run --group dev --with mypy mypy --strict src
       - run: python scripts/gen_catalog.py --check   # docs/CATALOG.md must be fresh
 
